@@ -1,0 +1,4 @@
+interface:
+  display_name: "开发工作流"
+  short_description: "逐步澄清需求和方案，生成图表供审阅，按模块开发验证并输出交付评估"
+  default_prompt: "使用 $dev-workflow，以中文逐步澄清需求、确认技术方案并构建 E2E 流程，生成含架构图、测试流程图和节点通过标准的统一 spec，获我批准和交付授权后再自主开发、验证并评估。"
