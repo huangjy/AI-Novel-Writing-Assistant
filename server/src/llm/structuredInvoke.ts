@@ -1,5 +1,6 @@
 import { implicatesStructuredMode, recordFailedMode, runWithInvocationChain, observeInvocationParse } from "./compatibility";
 import { ProductionBudgetExceededError } from "../modules/production/common";
+import { terminalSubscriptionError } from "../platform/llm/subscription-proxy";
 import { declarePromptCacheBoundary, getPromptCacheBoundary } from "../platform/llm/cache";
 import { toJSONSchema } from "zod";
 import { randomUUID } from "node:crypto";
@@ -82,6 +83,7 @@ export interface StructuredInvokeInput<T> {
 }
 
 interface StructuredAttemptTarget {
+  subscriptionConnection?: boolean;
   provider: LLMProvider;
   model: string;
   apiKey?: string;
@@ -203,6 +205,7 @@ async function resolveAttemptTarget(input: {
     ? toStructuredOutputStrategy(route.structuredResponseFormat)
     : null);
   return {
+    subscriptionConnection: Boolean(resolved.subscriptionModel),
     provider: resolved.provider,
     model: resolved.model,
     apiKey: input.apiKey,
@@ -213,7 +216,7 @@ async function resolveAttemptTarget(input: {
     maxTokens: resolved.maxTokens,
     requestProtocol: resolved.requestProtocol,
     preferredStrategy,
-    profile: resolveStructuredOutputProfile({
+    profile: resolved.subscriptionModel && resolved.structuredProfile ? resolved.structuredProfile : resolveStructuredOutputProfile({
       provider: resolved.provider,
       model: resolved.model,
       baseURL: resolved.baseURL,
@@ -404,10 +407,10 @@ async function invokeStructuredAttempt<T>(input: {
     // the budget grant flow instead of an "unknown claims" pause; classifying it
     // as a transport error would destroy that signal and burn a transport retry
     // on a request that can never be dispatched.
-    if (error instanceof ProductionBudgetExceededError) {
+    if (error instanceof ProductionBudgetExceededError || terminalSubscriptionError(error)) {
       evidence.durationMs = Date.now() - startedAt;
       await finishStructuredDiagnostic(diagnosticId, "failed", evidence);
-      throw error;
+      throw terminalSubscriptionError(error) ?? error;
     }
     const category = error instanceof StructuredOutputError
       ? error.category
@@ -470,12 +473,13 @@ async function tryStructuredStrategies<T>(input: {
   fallbackAvailable: boolean;
   fallbackUsed: boolean;
 }): Promise<StructuredInvokeResult<T>> {
-  input.target.profile = resolveStructuredOutputProfile({ ...input.target, executionMode: "structured" });
+  if (!input.target.subscriptionConnection) input.target.profile = resolveStructuredOutputProfile({ ...input.target, executionMode: "structured" });
   const sequence = buildStrategySequence(input.target.profile, input.baseInput.schema);
   const preferredSequence = input.target.preferredStrategy
     && !schemaAllowsTopLevelArray(input.baseInput.schema)
     && !input.target.profile.failedModes?.includes(input.target.preferredStrategy === "prompt_json" ? "prompt_only" : input.target.preferredStrategy)
     && (input.target.requestProtocol !== "anthropic" || input.target.preferredStrategy === "prompt_json")
+    && (!input.target.subscriptionConnection || sequence.includes(input.target.preferredStrategy))
     ? [
       input.target.preferredStrategy,
       ...sequence.filter((strategy) => strategy !== input.target.preferredStrategy),
@@ -499,7 +503,7 @@ async function tryStructuredStrategies<T>(input: {
     } catch (error) {
       // Keep a typed budget refusal typed: strategy fallback and transport
       // retries must never run against a request the budget refused to dispatch.
-      if (error instanceof ProductionBudgetExceededError) throw error;
+      if (error instanceof ProductionBudgetExceededError || terminalSubscriptionError(error)) throw terminalSubscriptionError(error) ?? error;
       lastError = wrapStructuredInvokeError({
         label: input.baseInput.label,
         error,
@@ -623,6 +627,7 @@ async function invokeStructuredLlmInChain<T>(input: StructuredInvokeInput<T>): P
       retryCount: transportRetryCount,
     });
   } catch (primaryError) {
+    if (terminalSubscriptionError(primaryError)) throw terminalSubscriptionError(primaryError);
     const reason = primaryError instanceof StructuredOutputError ? primaryError.diagnostics.response?.failureReason : null;
     if ((reason === "rate_limited" && primaryError instanceof StructuredOutputError && (primaryError.diagnostics.response?.retryAfterMs ?? 0) > 0
       && fallbackSettings?.provider === primaryTarget.provider) || reason === "blocked" || reason === "cancelled" || !fallbackEnabled || !fallbackSettings || currentModelRequestBudget()?.remaining() === 0) {

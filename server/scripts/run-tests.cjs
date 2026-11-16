@@ -10,6 +10,7 @@ const pgLiveTests = new Set(["pgCloudAcceptance.harness.test.js"]);
 
 const integrationTests = new Set([
   "authorizationMigrationSqlite.test.js",
+  "providerPersistenceSqlite.test.js",
   "directorLegacyPauseSqlite.test.js",
   "directorVolumeStrategyFreshBookSqlite.test.js",
   "shortStoryReviewSqlite.test.js",

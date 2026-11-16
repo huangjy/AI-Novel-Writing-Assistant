@@ -61,6 +61,9 @@ function buildCustomProviderId(name: string): LLMProvider {
 
 async function listProviderOptions(): Promise<QuickSetupProviderOption[]> {
   const records = await secretStore.listProviders();
+  const { getCopilotRuntime, projectSubscriptionBinding } = await import("../../../authorization");
+  const subscriptionAccount = records.some(record => record.connectionType === "copilot_subscription")
+    ? await getCopilotRuntime().providers.snapshot() : null;
   const recordByProvider = new Map(records.map((record) => [record.provider, record]));
   const builtins: QuickSetupProviderOption[] = SUPPORTED_PROVIDERS.map((provider) => {
     const config = PROVIDERS[provider];
@@ -92,18 +95,20 @@ async function listProviderOptions(): Promise<QuickSetupProviderOption[]> {
     .map((record) => {
       const currentModel = normalizeOptionalText(record.model) ?? "";
       const currentBaseURL = normalizeOptionalText(record.baseURL) ?? "";
+      const subscription = record.connectionType === "copilot_subscription"
+        ? projectSubscriptionBinding(record, subscriptionAccount) : null;
       return {
         id: record.provider,
         kind: "custom",
         name: normalizeOptionalText(record.displayName) ?? record.provider,
         requiresApiKey: false,
-        configured: record.isActive && Boolean(currentModel && currentBaseURL),
+        configured: subscription ? subscription.isConfigured : record.isActive && Boolean(currentModel && currentBaseURL),
         active: record.isActive,
         currentModel,
         defaultModel: currentModel,
         currentBaseURL,
         defaultBaseURL: currentBaseURL,
-        models: currentModel ? [currentModel] : [],
+        models: subscription?.models ?? (currentModel ? [currentModel] : []),
       };
     });
   return [...builtins, ...customs];

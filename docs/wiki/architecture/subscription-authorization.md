@@ -16,6 +16,12 @@
 - Web 使用 `AI_NOVEL_CREDENTIALS_DIR` 指定持久化私有目录；默认在服务端 `storage/credentials`。
   桌面使用 userData 下的 `credentials`。凭据目录不属于日志包或普通数据库导出内容。
 - 订阅错误应保持类型化，不作为输出格式问题进入 JSON 修复，不因账户失效静默切换到其他厂商。
+- Copilot 需重新授权使用 `COPILOT_AUTH_REQUIRED` 与 HTTP 409，不能使用应用访问鉴权的 401；
+  否则前端会把上游订阅失效误当成应用访问令牌过期，跳转到错误入口。
+- `platform/llm/subscription-proxy` 通过注入端口访问凭据，以标准 fetch 接入现有 SDK；
+  所有绑定共享账户发送许可和 Retry-After 冷却，代理不自行重试或重放生成。
+- 目录按上游显式端点选择 Chat 或 Responses，未知能力不能按模型名称猜测。
+  目录、连接测试、正式调用、顶部选择与快速配置读取同一绑定/就绪事实。
 - 授权中心复用应用 API 的访问保护；GitHub 登录不为未开启应用访问令牌的 Web 部署提供用户隔离。
 
 ## 模块与验证

@@ -5,6 +5,7 @@ import { Router } from "express";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import {
   PROVIDER_AUTH_MODES,
+  PROVIDER_CONNECTION_TYPES,
   REASONING_EFFORTS,
   type BuiltinLLMProvider,
   type LLMProvider,
@@ -72,6 +73,7 @@ import {
 import { registerCustomProviderRoutes } from "./settings/customProviderRoutes";
 import { registerLLMSelectionRoutes } from "./settings/llmSelectionRoutes";
 import {registerChapterBudgetSettingsRoutes} from "./settings/chapterBudgetRoutes";
+import { getCopilotRuntime, projectSubscriptionBinding } from "../modules/authorization";
 
 const router = Router();
 const MAX_PROVIDER_CONCURRENCY_LIMIT = 100;
@@ -88,6 +90,8 @@ const upsertApiKeySchema = z.object({
   imageModel: z.string().trim().optional(),
   baseURL: z.union([z.string().trim().url("API URL 格式不正确。"), z.literal("")]).optional(),
   authMode: z.enum(PROVIDER_AUTH_MODES).optional(),
+  connectionType: z.enum(PROVIDER_CONNECTION_TYPES).optional(),
+  authorizationAccountId: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
   reasoningEnabled: z.boolean().optional(),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
@@ -573,7 +577,13 @@ router.get("/api-keys", async (_req, res, next) => {
     const customProviders = keys
       .filter((item) => !isBuiltInProvider(item.provider))
       .map((item) => buildCustomProviderStatus(item, imageModelMap.get(item.provider)));
-    const data = [...builtInProviders, ...customProviders];
+    const subscriptionRecords = keys.filter(item => item.connectionType === "copilot_subscription");
+    const account = subscriptionRecords.length ? await getCopilotRuntime().providers.snapshot() : null;
+    const data = [...builtInProviders, ...customProviders].map(status => {
+      const record = subscriptionRecords.find(item => item.provider === status.provider);
+      return record ? { ...status, ...projectSubscriptionBinding(record, account) }
+        : { ...status, connectionType: "api_key" as const, authorizationAccountId: null };
+    });
     res.status(200).json({
       success: true,
       data,
@@ -658,6 +668,26 @@ router.put(
         }
       }
 
+      const nextConnectionType = body.connectionType ?? existing?.connectionType ?? "api_key";
+      if (nextConnectionType === "api_key" && body.authorizationAccountId) {
+        throw new AppError("API Key 连接不能同时绑定订阅账户。", 400);
+      }
+      if (nextConnectionType === "copilot_subscription") {
+        if (isBuiltInProvider(provider)) throw new AppError("请新增自定义厂商来绑定 Copilot 账户。", 400);
+        if (existing?.connectionType !== "copilot_subscription") {
+          const [rag, runtime] = await Promise.all([getRagEmbeddingSettings(), getRagRuntimeSettings()]);
+          if (runtime.enabled && rag.embeddingProvider === provider) {
+            throw new AppError("知识库正在使用此厂商，请先切换向量服务，再绑定 Copilot。", 400);
+          }
+        }
+        const record = await getCopilotRuntime().providers.update(provider, body);
+        setProviderSecretCache(provider, null);
+        evictSharedLimiters(provider);
+        await saveProviderImageModel(provider, null);
+        res.json({ success: true, data: record, message: "订阅厂商配置已保存。" });
+        return;
+      }
+
       if (requiresApiKey && !effectiveKey) {
         throw new AppError("请先填写 API Key。", 400);
       }
@@ -688,6 +718,8 @@ router.put(
           requestIntervalMs: nextRequestIntervalMs,
         })
         : await secretStore.updateProvider(provider, {
+          connectionType: "api_key",
+          authorizationAccountId: null,
           displayName: nextDisplayName,
           key: nextKey ?? null,
           model: nextModel ?? null,
@@ -827,6 +859,15 @@ router.post(
     try {
       const { provider } = req.params as z.infer<typeof providerSchema>;
       const keyConfig = await secretStore.getProvider(provider);
+      if (keyConfig?.connectionType === "copilot_subscription") {
+        await getCopilotRuntime().providers.refreshModels();
+        const projection = await getCopilotRuntime().providers.projection(keyConfig);
+        res.json({
+          success: true, data: { provider, models: projection.models, currentModel: keyConfig.model ?? "" },
+          message: "订阅模型列表已刷新。",
+        });
+        return;
+      }
       const effectiveKey = normalizeOptionalText(keyConfig?.key) ?? getProviderEnvApiKey(provider);
       if (providerRequiresApiKey(provider) && !effectiveKey) {
         throw new AppError("请先配置 API Key，再刷新模型列表。", 400);

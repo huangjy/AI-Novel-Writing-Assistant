@@ -397,6 +397,7 @@ export async function getRagEmbeddingProviders(): Promise<RagEmbeddingProviderSt
   const builtInProviders = [...SUPPORTED_PROVIDERS];
   try {
     const items = await prisma.aPIKey.findMany({
+      where: { connectionType: { not: "copilot_subscription" } },
       select: {
         provider: true,
         displayName: true,

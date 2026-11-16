@@ -1,4 +1,5 @@
 import type { CopilotAccountState, CopilotModel, SubscriptionCatalogState } from "@ai-novel/shared/types/authorization";
+import { SubscriptionError } from "../../../platform/llm/subscription-proxy";
 
 export const COPILOT_ACCOUNT_ID = "github_copilot";
 export interface AccountRecord {
@@ -52,14 +53,14 @@ export function catalogState(record: AccountRecord | null): SubscriptionCatalogS
   return (record?.catalogState ?? "refresh_required") as SubscriptionCatalogState;
 }
 
-export class CopilotError extends Error {
+export class CopilotError extends SubscriptionError {
   constructor(readonly code: string, message: string, readonly statusCode = 400) {
-    super(message);
+    super(code, message, statusCode);
     this.name = "CopilotError";
   }
 }
 export function authorizationRequired(): CopilotError {
-  return new CopilotError("COPILOT_AUTH_REQUIRED", "请在设置的授权中心登录 GitHub Copilot。", 401);
+  return new CopilotError("COPILOT_AUTH_REQUIRED", "请在设置的授权中心登录 GitHub Copilot。", 409);
 }
 export function revisionConflict(): CopilotError {
   return new CopilotError("COPILOT_REVISION_CONFLICT", "授权状态已变化，请刷新后再试。", 409);

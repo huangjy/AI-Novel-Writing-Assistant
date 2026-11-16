@@ -1,4 +1,5 @@
 import { recordInvocationParseFailure } from "./compatibility";
+import { terminalSubscriptionError } from "../platform/llm/subscription-proxy";
 import { classifyResponseEvidence, terminalResponseReason } from "../platform/llm/diagnostics/structuredEvidence";
 import type { StructuredResponseEvidence } from "@ai-novel/shared/types/structuredDiagnostics";
 import { z, type ZodError, type ZodType } from "zod";
@@ -423,6 +424,7 @@ export async function parseStructuredLlmRawContentDetailed<T>(
           tokenUsage: input.tokenUsage ?? null,
         };
       } catch (repairError) {
+        if (terminalSubscriptionError(repairError)) throw terminalSubscriptionError(repairError);
         if (repairError instanceof StructuredOutputError && terminalResponseReason(repairError.diagnostics.response?.failureReason)) throw repairError;
         if (attempt >= maxRepairAttempts) {
           throw buildStructuredError({
@@ -517,6 +519,7 @@ export async function parseStructuredLlmRawContentDetailed<T>(
         tokenUsage: input.tokenUsage ?? null,
       };
     } catch (error) {
+      if (terminalSubscriptionError(error)) throw terminalSubscriptionError(error);
       if (error instanceof StructuredOutputError && terminalResponseReason(error.diagnostics.response?.failureReason)) throw error;
       if (attempt >= maxRepairAttempts) {
         throw buildStructuredError({

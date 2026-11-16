@@ -3,6 +3,7 @@ import type { Router } from "express";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import {
   PROVIDER_AUTH_MODES,
+  PROVIDER_CONNECTION_TYPES,
   REASONING_EFFORTS,
   type ProviderAuthMode,
   type ReasoningEffort,
@@ -25,6 +26,7 @@ import { getLLMSelectionSettings } from "../../services/settings/LLMSelectionSet
 import { getRagEmbeddingSettings } from "../../services/settings/RagSettingsService";
 import { getRagRuntimeSettings } from "../../services/settings/RagRuntimeSettingsService";
 import { secretStore } from "../../services/settings/secretStore";
+import { getCopilotRuntime } from "../../modules/authorization";
 
 const MAX_PROVIDER_CONCURRENCY_LIMIT = 100;
 const MAX_PROVIDER_REQUEST_INTERVAL_MS = 3_600_000;
@@ -38,7 +40,9 @@ const createCustomProviderSchema = z.object({
   key: z.string().trim().optional(),
   model: z.string().trim().optional(),
   imageModel: z.string().trim().optional(),
-  baseURL: z.string().trim().url("API URL 格式不正确。"),
+  baseURL: z.union([z.string().trim().url("API URL 格式不正确。"), z.literal("")]).optional(),
+  connectionType: z.enum(PROVIDER_CONNECTION_TYPES).default("api_key"),
+  authorizationAccountId: z.string().optional(),
   authMode: z.enum(PROVIDER_AUTH_MODES).optional(),
   isActive: z.boolean().optional(),
   reasoningEnabled: z.boolean().optional(),
@@ -155,6 +159,13 @@ export function registerCustomProviderRoutes(router: Router): void {
     async (req, res, next) => {
       try {
         const body = req.body as z.infer<typeof createCustomProviderSchema>;
+        if (body.connectionType === "copilot_subscription") {
+          const record = await getCopilotRuntime().providers.create(body);
+          res.status(201).json({ success: true, data: record, message: "订阅厂商已创建。" });
+          return;
+        }
+        if (body.authorizationAccountId) throw new AppError("API Key 连接不能同时绑定订阅账户。", 400);
+        if (!body.baseURL) throw new AppError("请填写自定义厂商的 API 地址。", 400);
         const provider = await ensureUniqueCustomProviderId(body.name);
         const apiKey = normalizeOptionalText(body.key);
         const baseURL = body.baseURL.trim();

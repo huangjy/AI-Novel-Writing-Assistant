@@ -1,4 +1,5 @@
 import { prisma } from "../../db/prisma";
+import { AppError } from "../../middleware/errorHandler";
 import { type EmbeddingProvider } from "../../config/rag";
 import { getProviderModels } from "../../llm/modelCatalog";
 import {
@@ -99,6 +100,9 @@ async function resolveProviderSecret(provider: EmbeddingProvider): Promise<Provi
     const record = await prisma.aPIKey.findUnique({
       where: { provider },
     });
+    if (record?.connectionType === "copilot_subscription") {
+      throw new AppError("Copilot 订阅连接仅支持文本生成，请选择独立的向量服务。", 400);
+    }
     const dbApiKey = record?.isActive ? record.key?.trim() : undefined;
     const dbBaseURL = record?.isActive ? record.baseURL?.trim() : undefined;
     const dbModel = record?.isActive ? record.model?.trim() : undefined;

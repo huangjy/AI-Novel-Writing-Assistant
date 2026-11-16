@@ -149,11 +149,11 @@ export class AuthorizationService {
       }, true);
       this.credentials.invalidate();
       this.credentials.seed({ ...access, revision: saved.credentialRevision });
-      this.finish(session, "succeeded");
       // Catalog/provisioning failure must not undo an already saved authorization.
       await this.onAuthorized().catch(() => {
         console.info("[authorization.session]", JSON.stringify({ sessionId: id, outcome: "catalog_pending" }));
       });
+      if (session.public.state === "pending") this.finish(session, "succeeded");
     } catch (error) {
       if (session.public.state !== "pending") return;
       const safe = error instanceof CopilotError ? error

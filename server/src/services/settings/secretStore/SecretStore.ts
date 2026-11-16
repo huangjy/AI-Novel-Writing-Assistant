@@ -5,6 +5,8 @@ export interface SecretStoreRecord {
   model: string | null;
   baseURL: string | null;
   authMode: string;
+  connectionType?: string;
+  authorizationAccountId?: string | null;
   isActive: boolean;
   reasoningEnabled: boolean | null;
   reasoningEffort: string | null;
@@ -22,6 +24,8 @@ export interface SecretStoreWriteInput {
   model?: string | null;
   baseURL?: string | null;
   authMode?: string;
+  connectionType?: string;
+  authorizationAccountId?: string | null;
   isActive?: boolean;
   reasoningEnabled?: boolean;
   reasoningEffort?: string | null;

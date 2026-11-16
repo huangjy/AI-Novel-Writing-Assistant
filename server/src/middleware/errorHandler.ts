@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import { ZodError, type ZodIssue } from "zod";
 import {randomUUID} from "node:crypto";
+import { terminalSubscriptionError } from "../platform/llm/subscription-proxy";
 
 export class AppError extends Error {
   readonly statusCode: number;
@@ -223,6 +224,14 @@ export function errorHandler(
   const requestId = randomUUID();
   res.locals.requestId = requestId;
   res.setHeader?.("X-Request-Id", requestId);
+  const subscriptionError = terminalSubscriptionError(error);
+  if (subscriptionError) {
+    setRequestErrorMessage(res, subscriptionError.message);
+    res.status(subscriptionError.statusCode).json({
+      success: false, code: subscriptionError.code, error: subscriptionError.message, requestId,
+    });
+    return;
+  }
   if (
     error
     && typeof error === "object"

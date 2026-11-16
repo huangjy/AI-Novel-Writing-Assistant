@@ -1,11 +1,5 @@
-import { FileCredentialVault } from "../../platform/security/credentials";
-import {
-  AuthorizationService, CopilotCredentials, createAuthorizationRouter, GitHubCopilotGateway, PrismaAccountStore,
-} from "../../modules/authorization";
-
-const store = new PrismaAccountStore();
-const vault = new FileCredentialVault();
-const gateway = new GitHubCopilotGateway();
-export const copilotCredentials = new CopilotCredentials(store, vault, gateway);
-export const authorizationService = new AuthorizationService(store, vault, gateway, copilotCredentials);
+import { createAuthorizationRouter, getCopilotRuntime } from "../../modules/authorization";
+const runtime = getCopilotRuntime();
+export const copilotCredentials = runtime.credentials;
+export const authorizationService = runtime.authorization;
 export const authorizationRouter = createAuthorizationRouter(authorizationService);

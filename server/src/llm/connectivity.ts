@@ -7,6 +7,7 @@ import type {
   ModelRouteTaskType,
 } from "@ai-novel/shared/types/novel";
 import { getLLM, resolveLLMClientOptions } from "./factory";
+import { terminalSubscriptionError } from "../platform/llm/subscription-proxy";
 import {
   MODEL_ROUTE_TASK_TYPES,
   resolveModel,
@@ -148,6 +149,7 @@ async function testPlainConnection(input: {
       structured: null,
     };
   } catch (error) {
+    if (terminalSubscriptionError(error)) throw terminalSubscriptionError(error);
     const plain = {
       ok: false,
       latency: null,
@@ -234,6 +236,7 @@ async function testStructuredConnection(input: {
       structured,
     };
   } catch (error) {
+    if (terminalSubscriptionError(error)) throw terminalSubscriptionError(error);
     const summary = summarizeStructuredOutputFailure({
       error,
       fallbackAvailable: false,
@@ -302,10 +305,19 @@ async function testConnection(input: {
   structuredResponseFormat?: ModelRouteStructuredResponseFormat;
 }): Promise<LLMConnectivityStatus> {
   const probeMode = input.probeMode ?? "both";
+  const resolvedConnection = await resolveLLMClientOptions(input.provider, {
+    apiKey: input.apiKey, baseURL: input.baseURL, model: input.model, authMode: input.authMode,
+    requestProtocol: input.requestProtocol,
+  }).catch(error => {
+    if (terminalSubscriptionError(error)) throw terminalSubscriptionError(error);
+    return null;
+  });
+  const protocols: ModelRouteRequestProtocol[] = resolvedConnection?.subscriptionModel
+    ? ["openai_compatible"] : getProtocolCandidates(input.requestProtocol);
   let plain: LLMConnectivityStatus | null = null;
   let structured: LLMConnectivityStatus | null = null;
   if (probeMode === "plain" || probeMode === "both") {
-    for (const requestProtocol of getProtocolCandidates(input.requestProtocol)) {
+    for (const requestProtocol of protocols) {
       plain = await testPlainConnection({ ...input, requestProtocol });
       if (plain.ok) {
         break;
@@ -313,14 +325,17 @@ async function testConnection(input: {
     }
   }
   if (probeMode === "structured" || probeMode === "both") {
-    for (const requestProtocol of getProtocolCandidates(input.requestProtocol)) {
-      for (const structuredResponseFormat of getStructuredFormatCandidates({
+    for (const requestProtocol of protocols) {
+      const formats = resolvedConnection?.subscriptionModel && resolvedConnection.structuredProfile
+        ? structuredStrategySequence(resolvedConnection.structuredProfile, STRUCTURED_PROBE_SCHEMA)
+        : getStructuredFormatCandidates({
         provider: input.provider,
         model: input.model,
         baseURL: input.baseURL,
         requestProtocol,
         preferred: input.structuredResponseFormat,
-      })) {
+      });
+      for (const structuredResponseFormat of formats) {
         structured = await testStructuredConnection({ ...input, requestProtocol, structuredResponseFormat });
         if (structured.ok) {
           break;

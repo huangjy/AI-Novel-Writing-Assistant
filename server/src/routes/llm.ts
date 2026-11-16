@@ -13,6 +13,7 @@ import { getProviderEnvApiKey, getProviderEnvModel, isBuiltInProvider, PROVIDERS
 import { authMiddleware } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { validate } from "../middleware/validate";
+import { getCopilotRuntime } from "../modules/authorization";
 
 const router = Router();
 
@@ -66,6 +67,13 @@ router.get("/providers", async (_req, res, next) => {
         .filter((item) => !isBuiltInProvider(item.provider))
         .map(async (item) => {
           const currentModel = item.model?.trim() || "";
+          if (item.connectionType === "copilot_subscription") {
+            const projection = await getCopilotRuntime().providers.projection(item);
+            return [item.provider, {
+              name: item.displayName?.trim() || item.provider, defaultModel: currentModel,
+              models: projection.isConfigured ? projection.models : [],
+            }] as const;
+          }
           const models = filterHiddenModels(await getProviderModels(item.provider, {
             apiKey: item.key ?? undefined,
             baseURL: item.baseURL ?? undefined,
@@ -172,6 +180,12 @@ router.put(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof modelRouteUpsertSchema>;
+      if (body.requestProtocol === "anthropic") {
+        const provider = await prisma.aPIKey.findUnique({ where: { provider: body.provider } });
+        if (provider?.connectionType === "copilot_subscription") {
+          throw new AppError("Copilot 订阅连接不支持 Anthropic 原生协议，请选择 OpenAI 兼容协议。", 400);
+        }
+      }
       await upsertModelRouteConfig(body.taskType, {
         provider: body.provider,
         model: body.model,

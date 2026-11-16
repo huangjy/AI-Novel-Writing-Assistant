@@ -4,6 +4,9 @@ import {attachExecutionSignal,assertLlmExecutionConfiguration,attachLlmExecution
 import type { LLMProvider, ProviderAuthMode, ReasoningEffort } from "@ai-novel/shared/types/llm";
 import type { ModelRouteRequestProtocol } from "@ai-novel/shared/types/novel";
 import { ChatOpenAI } from "@langchain/openai";
+import type { CopilotModel } from "@ai-novel/shared/types/authorization";
+import { getCopilotRuntime, CopilotError } from "../modules/authorization";
+import { SUBSCRIPTION_BASE_URL } from "../platform/llm/subscription-proxy";
 import type { PromptInvocationMeta } from "../prompting/core/promptTypes";
 import { secretStore } from "../services/settings/secretStore";
 import { resolveModelTemperature } from "./capabilities";
@@ -51,6 +54,8 @@ interface LLMOptions {
 }
 
 export interface ProviderSecret {
+  connectionType?: string;
+  authorizationAccountId?: string | null;
   key?: string;
   model?: string;
   baseURL?: string;
@@ -63,6 +68,7 @@ export interface ProviderSecret {
 }
 
 export interface ResolvedLLMClientOptions {
+  subscriptionModel?: CopilotModel;
   provider: LLMProvider;
   providerName: string;
   model: string;
@@ -126,6 +132,8 @@ function normalizeProviderAuthMode(value: unknown): ProviderAuthMode {
 
 function normalizeProviderSecret(secret: ProviderSecret): ProviderSecret {
   return {
+    connectionType: secret.connectionType,
+    authorizationAccountId: secret.authorizationAccountId,
     key: normalizeOptionalText(secret.key),
     model: normalizeOptionalText(secret.model),
     baseURL: normalizeOptionalText(secret.baseURL),
@@ -146,6 +154,8 @@ function normalizeLimitValue(value: unknown): number {
 }
 
 function toProviderSecret(item: {
+  connectionType?: string;
+  authorizationAccountId?: string | null;
   key?: string | null;
   model?: string | null;
   baseURL?: string | null;
@@ -157,6 +167,8 @@ function toProviderSecret(item: {
   requestIntervalMs?: number | null;
 }): ProviderSecret {
   return normalizeProviderSecret({
+    connectionType: item.connectionType,
+    authorizationAccountId: item.authorizationAccountId,
     key: item.key ?? undefined,
     model: item.model ?? undefined,
     baseURL: item.baseURL ?? undefined,
@@ -196,6 +208,14 @@ export function setProviderSecretCache(provider: LLMProvider, secret: ProviderSe
 
 async function resolveProviderSecret(provider: LLMProvider): Promise<ProviderSecret | undefined> {
   const cached = providerSecrets.get(provider);
+  if (cached && cached.connectionType !== "copilot_subscription") return cached;
+  if (!isBuiltInProvider(provider)) {
+    const record = await secretStore.getProvider(provider);
+    if (record?.connectionType === "copilot_subscription" && !record.isActive) {
+      throw new CopilotError("COPILOT_BINDING_INVALID", "此 Copilot 厂商已停用，请检查模型配置。", 409);
+    }
+    return record?.isActive ? toProviderSecret(record) : undefined;
+  }
   if (cached) {
     return cached;
   }
@@ -269,10 +289,15 @@ export async function resolveLLMClientOptions(
   }
 
   const dbSecret = await resolveProviderSecret(resolvedProvider);
+  const subscription = dbSecret?.connectionType === "copilot_subscription";
+  if (subscription && (options.requestProtocol === "anthropic" || options.apiKey
+    || (options.baseURL && options.baseURL !== SUBSCRIPTION_BASE_URL))) {
+    throw new CopilotError("COPILOT_BINDING_INVALID", "Copilot 订阅连接不能使用外部密钥、地址或 Anthropic 原生协议。");
+  }
   const providerName = isBuiltInProvider(resolvedProvider)
     ? PROVIDERS[resolvedProvider].name
     : dbSecret?.displayName ?? resolvedProvider;
-  const apiKey = normalizeOptionalText(options.apiKey)
+  const apiKey = subscription ? undefined : normalizeOptionalText(options.apiKey)
     ?? dbSecret?.key
     ?? getProviderEnvApiKey(resolvedProvider);
 
@@ -287,8 +312,9 @@ export async function resolveLLMClientOptions(
   if (!model) {
     throw new Error(`未配置 ${providerName} 的默认模型。`);
   }
+  let subscriptionModel = subscription ? await getCopilotRuntime().providers.model(model) : undefined;
 
-  const baseURL = resolveProviderBaseUrl(
+  const baseURL = subscription ? SUBSCRIPTION_BASE_URL : resolveProviderBaseUrl(
     resolvedProvider,
     options.baseURL ?? dbSecret?.baseURL,
     dbSecret?.baseURL,
@@ -296,9 +322,15 @@ export async function resolveLLMClientOptions(
   if (!baseURL) {
     throw new Error(`未配置 ${providerName} 的 API URL。`);
   }
-  const authMode = normalizeProviderAuthMode(options.authMode ?? dbSecret?.authMode);
+  const authMode = subscription ? "none" : normalizeProviderAuthMode(options.authMode ?? dbSecret?.authMode);
 
   const capability = await loadCapability({ provider: resolvedProvider, model, baseURL });
+  if (subscriptionModel && capability.source !== "builtin_default") {
+    subscriptionModel = {
+      ...subscriptionModel, supportsTools: capability.structuredModes.includes("tool_calling"),
+      supportsStructuredOutput: capability.structuredModes.includes("json_schema"),
+    };
+  }
   if (capability.maxOutputTokens != null) respectConfiguredMaxTokens = true;
   const temperature = resolveModelTemperature(resolvedProvider, model, resolvedTemperature);
   const timeoutMs = normalizeOptionalTimeoutMs(options.timeoutMs);
@@ -307,7 +339,7 @@ export async function resolveLLMClientOptions(
   const requestProtocol = options.requestProtocol === "anthropic" ? "anthropic" : "openai_compatible";
   const structuredStrategy = options.structuredStrategy;
   const executionMode = options.executionMode ?? "plain";
-  const structuredProfile = executionMode === "structured"
+  let structuredProfile = executionMode === "structured" || subscription
     ? resolveStructuredOutputProfile({
       provider: resolvedProvider,
       model,
@@ -316,6 +348,19 @@ export async function resolveLLMClientOptions(
       requestProtocol,
     })
     : null;
+  if (subscriptionModel && structuredProfile) {
+    const structuredModes: NonNullable<StructuredOutputProfile["structuredModes"]> = [
+      ...(subscriptionModel.supportsStructuredOutput ? ["json_schema" as const] : []),
+      ...(subscriptionModel.supportsTools ? ["tool_calling" as const] : []),
+      "prompt_only",
+    ];
+    structuredProfile = {
+      ...structuredProfile, structuredModes, nativeJsonSchema: subscriptionModel.supportsStructuredOutput,
+      nativeJsonObject: false, requiresNonThinkingForStructured: false, supportsReasoningToggle: false,
+      preferredStructuredStrategy: structuredModes[0] === "prompt_only" ? "prompt_json" : structuredModes[0],
+      omitMaxTokensForNativeStructured: false,
+    };
+  }
   const usesNativeStructured = structuredStrategy != null && structuredStrategy !== "prompt_json";
   const requestedReasoningEnabled = options.reasoningEnabled ?? dbSecret?.reasoningEnabled ?? true;
   const requestedReasoningEffort = options.reasoningEffort ?? dbSecret?.reasoningEffort ?? "high";
@@ -339,7 +384,9 @@ export async function resolveLLMClientOptions(
     effectiveMaxTokens = Math.min(effectiveMaxTokens, structuredProfile.safeStructuredMaxTokens);
   }
   const baseModelKwargs = options.modelKwargs ?? {};
-  const reasoningBehavior = resolveProviderReasoningBehavior({
+  const reasoningBehavior = subscription ? {
+    reasoningEnabled: requestedReasoningEnabled, reasoningEffort: null, modelKwargs: undefined, includeRawResponse: false,
+  } : resolveProviderReasoningBehavior({
     provider: resolvedProvider,
     baseURL,
     model,
@@ -352,6 +399,7 @@ export async function resolveLLMClientOptions(
   };
 
   return {
+    subscriptionModel,
     provider: resolvedProvider,
     providerName,
     model,
@@ -359,7 +407,8 @@ export async function resolveLLMClientOptions(
     apiKey,
     baseURL,
     authMode,
-    maxTokens: effectiveMaxTokens,
+    maxTokens: subscriptionModel?.maxOutputTokens
+      ? Math.min(effectiveMaxTokens ?? subscriptionModel.maxOutputTokens, subscriptionModel.maxOutputTokens) : effectiveMaxTokens,
     timeoutMs,
     concurrencyLimit,
     requestIntervalMs,
@@ -394,6 +443,9 @@ export function buildOpenAICompatibleDefaultHeaders(
 
 export function createLLMFromResolvedOptions(resolved: ResolvedLLMClientOptions): ChatOpenAI {
   assertLlmExecutionConfiguration(resolved);
+  if (resolved.baseURL === SUBSCRIPTION_BASE_URL && !resolved.subscriptionModel) {
+    throw new CopilotError("COPILOT_BINDING_INVALID", "订阅连接缺少有效的模型绑定。");
+  }
   const llm = resolved.requestProtocol === "anthropic"
     ? createAnthropicLLM({
       apiKey: resolved.apiKey,
@@ -404,6 +456,7 @@ export function createLLMFromResolvedOptions(resolved: ResolvedLLMClientOptions)
       timeoutMs: resolved.timeoutMs,
     }) as ChatOpenAI
     : new ChatOpenAI({
+      useResponsesApi: resolved.subscriptionModel?.transport === "responses",
       apiKey: resolved.apiKey ?? "ollama",
       model: resolved.model,
       modelName: resolved.model,
@@ -416,6 +469,9 @@ export function createLLMFromResolvedOptions(resolved: ResolvedLLMClientOptions)
       configuration: {
         baseURL: resolved.baseURL,
         defaultHeaders: buildOpenAICompatibleDefaultHeaders(resolved.authMode, resolved.apiKey),
+        ...(resolved.subscriptionModel ? {
+          fetch: getCopilotRuntime().proxy.fetchFor(resolved.provider, resolved.model, resolved.timeoutMs, resolved.subscriptionModel),
+        } : {}),
       },
     });
   const meta = {

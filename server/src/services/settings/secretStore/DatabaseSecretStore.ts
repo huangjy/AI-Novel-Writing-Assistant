@@ -8,6 +8,8 @@ function toPrismaWriteInput(input: SecretStoreWriteInput): Record<string, unknow
     ...(input.model !== undefined ? { model: input.model } : {}),
     ...(input.baseURL !== undefined ? { baseURL: input.baseURL } : {}),
     ...(input.authMode !== undefined ? { authMode: input.authMode } : {}),
+    ...(input.connectionType !== undefined ? { connectionType: input.connectionType } : {}),
+    ...(input.authorizationAccountId !== undefined ? { authorizationAccountId: input.authorizationAccountId } : {}),
     ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     ...(input.reasoningEnabled !== undefined ? { reasoningEnabled: input.reasoningEnabled } : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),

@@ -5,3 +5,6 @@ export { PrismaAccountStore } from "./infrastructure/PrismaAccountStore";
 export { GitHubCopilotGateway, parseCopilotModels, validateCopilotOrigin } from "./infrastructure/GitHubCopilotGateway";
 export { COPILOT_ACCOUNT_ID, CopilotError, authorizationRequired, revisionConflict } from "./domain/contracts";
 export type { AccountStore, AccountRecord, CopilotAccess, CopilotGateway, CredentialVault } from "./domain/contracts";
+export { getCopilotRuntime } from "./composition";
+export { SubscriptionProviders, projectSubscriptionBinding } from "./application/SubscriptionProviders";
+export type { BoundProvider, BindingRepository } from "./application/SubscriptionProviders";
