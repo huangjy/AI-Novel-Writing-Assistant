@@ -61,6 +61,13 @@ test("does not interrupt model settings with an automatic setup prompt", () => {
   }), false);
 });
 
+test("the authorization source page remains accessible before a model is configured", () => {
+  const status = { statusResolved: true, readyForCreation: false, dismissed: false };
+  assert.equal(shouldOpenAutomaticSetupPrompt({ ...status, pathname: "/settings/authorization" }), false);
+  assert.equal(shouldOpenSetupPromptForRoute({ ...status, pathname: "/settings/authorization" }), false);
+  assert.equal(shouldOpenAutomaticSetupPrompt({ ...status, pathname: "/novels" }), true);
+});
+
 test("waits until model settings closes before prompting on a gated route", () => {
   assert.equal(shouldOpenSetupPromptForRoute({
     statusResolved: true,

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AuthorizationSession, CopilotAccountSummary } from "@ai-novel/shared/types/authorization";
 import {
-  accountState, catalogState, COPILOT_ACCOUNT_ID, CopilotError, revisionConflict,
+  accountState, catalogState, COPILOT_ACCOUNT_ID, CopilotError, authorizationRequired, revisionConflict,
   type AccountStore, type CopilotGateway, type CredentialVault, type DeviceCode,
 } from "../domain/contracts";
 import { CopilotCredentials, readSavedModels } from "./CopilotCredentials";
@@ -38,9 +38,14 @@ export class AuthorizationService {
   ) {}
 
   setAuthorizedHandler(handler: () => Promise<void>): void { this.onAuthorized = handler; }
+  async prepareProviders(): Promise<void> {
+    const account = await this.store.get();
+    if (account?.state !== "authorized" || !account.encryptedCredential) throw authorizationRequired();
+    await this.onAuthorized();
+  }
 
   private snapshot(session: LoginSession): AuthorizationSession {
-    return { ...session.public, userCode: session.public.state === "pending" ? session.device.userCode : undefined };
+    return { ...session.public, userCode: session.public.state === "pending" && session.public.phase !== "saving" ? session.device.userCode : undefined };
   }
 
   async summary(): Promise<CopilotAccountSummary> {
@@ -73,7 +78,7 @@ export class AuthorizationService {
       key, device, revision: account.credentialRevision, replaceAccount,
       controller: new AbortController(), polling: false,
       public: {
-        id: randomUUID(), state: "pending", verificationUri: device.verificationUri,
+        id: randomUUID(), state: "pending", phase: "authorizing", verificationUri: device.verificationUri,
         expiresAt: this.now() + device.expiresIn * 1000, pollIntervalMs: device.interval * 1000,
       },
     };
@@ -106,7 +111,7 @@ export class AuthorizationService {
   cancel(id: string): AuthorizationSession {
     const session = this.sessions.get(id);
     if (!session) return this.session(id);
-    if (session.public.state === "pending") this.finish(session, "cancelled");
+    if (session.public.state === "pending" && session.public.phase !== "saving") this.finish(session, "cancelled");
     return this.snapshot(session);
   }
 
@@ -134,15 +139,22 @@ export class AuthorizationService {
         return;
       }
       if (!result.token) throw new CopilotError("COPILOT_LOGIN_FAILED", "GitHub 登录未完成，请重新发起登录。");
+      session.public.phase = "validating";
       const user = await this.gateway.user(result.token, signal);
       const access = await this.gateway.exchange(result.token, signal);
       signal.throwIfAborted();
       const account = await this.store.get();
+      signal.throwIfAborted();
       if (!account || account.credentialRevision !== session.revision) throw revisionConflict();
       if (account.githubUserId && account.githubUserId !== user.id && !session.replaceAccount) {
         throw new CopilotError("COPILOT_ACCOUNT_CONFLICT", "请先退出账户，并确认将所有关联厂商接到另一个 GitHub 账户。", 409);
       }
-      const encryptedCredential = this.vault.seal(result.token, account.id, !account.encryptedCredential);
+      let encryptedCredential: string;
+      try { encryptedCredential = this.vault.seal(result.token, account.id, !account.encryptedCredential); }
+      catch {
+        throw new CopilotError("COPILOT_CREDENTIAL_UNAVAILABLE", "授权密钥不可用，请检查凭据目录权限并恢复原密钥。", 409);
+      }
+      session.public.phase = "saving";
       const saved = await this.store.update(session.revision, {
         githubUserId: user.id, login: user.login, state: "authorized", encryptedCredential,
         catalogState: "refresh_required", catalogJson: "[]",

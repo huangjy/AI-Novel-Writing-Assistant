@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
+import { openCopilotDeviceLogin } from "./runtime/authorization/copilotLogin";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -434,6 +435,8 @@ async function showBootstrapFailureDialog(error: unknown): Promise<void> {
 }
 
 function registerDesktopIpcHandlers(): void {
+  ipcMain.handle("desktop:open-copilot-login", event =>
+    openCopilotDeviceLogin(event, mainWindow?.webContents, url => shell.openExternal(url)));
   ipcMain.handle("desktop:get-bootstrap-snapshot", () => desktopBootstrapStore.getSnapshot());
   ipcMain.handle("desktop:get-updater-snapshot", () => desktopUpdaterStore.getSnapshot());
   ipcMain.handle("desktop:get-data-import-snapshot", () => getDesktopDataImportSnapshot());

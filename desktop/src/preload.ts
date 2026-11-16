@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("__AI_NOVEL_DESKTOP__", {
   checkForUpdates: () => ipcRenderer.invoke("desktop:check-for-updates"),
   quitAndInstall: () => ipcRenderer.invoke("desktop:quit-and-install"),
   openLogsDirectory: () => ipcRenderer.invoke("desktop:open-logs-directory"),
+  openCopilotLogin: () => ipcRenderer.invoke("desktop:open-copilot-login"),
   copyLogPath: () => ipcRenderer.invoke("desktop:copy-log-path"),
   bundleLogs: () => ipcRenderer.invoke("desktop:bundle-logs"),
   restartApp: () => ipcRenderer.invoke("desktop:restart-app"),

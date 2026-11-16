@@ -7,6 +7,7 @@ const GATED_ROUTE_PREFIXES = [
 ];
 
 interface AutomaticSetupPromptInput {
+  pathname?: string;
   statusResolved: boolean;
   readyForCreation: boolean;
   dismissed: boolean;
@@ -33,7 +34,8 @@ interface ProviderSelectionInitializationInput {
 }
 
 export function shouldOpenAutomaticSetupPrompt(input: AutomaticSetupPromptInput): boolean {
-  return input.statusResolved && !input.readyForCreation && !input.dismissed && !input.modelSettingsOpen;
+  return input.statusResolved && !input.readyForCreation && !input.dismissed && !input.modelSettingsOpen
+    && input.pathname !== "/settings/authorization";
 }
 
 export function shouldOpenSetupPromptForRoute(input: RouteSetupPromptInput): boolean {

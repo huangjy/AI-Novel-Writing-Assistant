@@ -27,7 +27,12 @@ export interface BindingRepository {
 }
 
 export function projectSubscriptionBinding(provider: BoundProvider, account: AccountRecord | null) {
-  const hidden = (() => { try { return JSON.parse(provider.hiddenModels ?? "[]") as string[]; } catch { return []; } })();
+  const hidden = (() => {
+    try {
+      const value: unknown = JSON.parse(provider.hiddenModels ?? "[]");
+      return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+    } catch { return []; }
+  })();
   const models = readSavedModels(account).filter(m => m.transport && (!hidden.includes(m.id) || m.id === provider.model)).map(m => m.id);
   const authorized = provider.authorizationAccountId === COPILOT_ACCOUNT_ID && account?.state === "authorized";
   const ready = Boolean(provider.isActive && authorized && account?.catalogState === "ready" && provider.model && models.includes(provider.model));
@@ -35,8 +40,10 @@ export function projectSubscriptionBinding(provider: BoundProvider, account: Acc
     connectionType: "copilot_subscription" as ProviderConnectionType,
     authorizationAccountId: provider.authorizationAccountId ?? null,
     authorizationState: account?.state ?? "signed_out",
+    authorizationLogin: account?.login ?? null,
     readiness: !authorized ? "needs_authorization" : ready ? "ready" : "needs_model",
     isConfigured: ready, models, requiresApiKey: false, supportsImageGeneration: false,
+    supportsReasoningEffort: false,
     currentBaseURL: "", defaultBaseURL: "", currentImageModel: null, imageModels: [] as string[],
   };
 }

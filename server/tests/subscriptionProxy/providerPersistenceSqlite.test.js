@@ -10,7 +10,9 @@ test("real Prisma bindings, factory, structured auth errors and process restart 
   const env = { ...process.env, NODE_ENV: "test", DATABASE_URL: `file:${database}`,
     AI_NOVEL_RUNTIME: "desktop", AI_NOVEL_APP_DATA_DIR: directory,
     AI_NOVEL_CREDENTIALS_DIR: path.join(directory, "credentials"), LLM_DEBUG_LOG: "false",
+    DOTENV_CONFIG_PATH: "/dev/null", AI_NOVEL_ACCESS_TOKEN: "isolated-app-token",
     COPILOT_TEST_SERVER: server };
+  for (const key of Object.keys(env)) if (key.endsWith("_API_KEY")) delete env[key];
   const schema = spawnSync(process.execPath, [
     path.join(server, "node_modules/prisma/build/index.js"), "migrate", "diff",
     "--from-empty", "--to-schema", path.join(server, "src/prisma/schema.sqlite.prisma"), "--script",
@@ -46,7 +48,16 @@ test("real Prisma bindings, factory, structured auth errors and process restart 
     const response=()=>Response.json({id:"cmpl",object:"chat.completion",created:1,model:"chat-model",
       choices:[{index:0,message:{role:"assistant",content:'{"status":"ok"}'},finish_reason:"stop"}],
       usage:{prompt_tokens:2,completion_tokens:1,total_tokens:3}});
-    const proxy=new SubscriptionProxy(providers,async()=>{calls++;return mode==="deny"?new Response("private-detail",{status:401}):response();});
+    const proxy=new SubscriptionProxy(providers,async(_url,init)=>{
+      calls++;
+      if(mode==="deny")return new Response("private-detail",{status:401});
+      if(JSON.parse(init.body).stream)return new Response("data: "+JSON.stringify({
+        id:"cmpl",object:"chat.completion.chunk",model:"chat-model",
+        choices:[{index:0,delta:{role:"assistant",content:'{"status":"ok"}'},finish_reason:"stop"}],
+        usage:{prompt_tokens:2,completion_tokens:1,total_tokens:3}
+      })+"\n\ndata: [DONE]\n\n",{headers:{"content-type":"text/event-stream"}});
+      return response();
+    });
     authorization.setAuthorizedHandler(async()=>{await providers.bootstrap();await providers.refreshModels();});
     const composition=load("modules/authorization/composition");
     composition.getCopilotRuntime=()=>({authorization,credentials,providers,proxy});
@@ -59,20 +70,63 @@ test("real Prisma bindings, factory, structured auth errors and process restart 
         assert.equal(await prisma.aPIKey.count(),1);
         const first=await prisma.aPIKey.findFirst();assert.equal(first.key,null);assert.equal(first.baseURL,null);
         assert.equal(first.connectionType,"copilot_subscription");assert.equal(first.model,"chat-model");
+        await assert.rejects(()=>load("services/settings/RagEmbeddingModelService").getRagEmbeddingModelOptions(first.provider),
+          error=>error.statusCode===400);
+        await assert.rejects(()=>load("services/image/provider").generateImagesByProvider({
+          provider:first.provider,model:"not-an-image-model",prompt:"fixture",size:"1024x1024",count:1
+        }),error=>error.statusCode===400);
         await prisma.aPIKey.update({where:{provider:first.provider},data:{displayName:"User name",hiddenModels:'["catalog-1"]'}});
         const again=await authorization.start("second-prisma-request");await authorization.poll(again.id);
         assert.equal(await prisma.aPIKey.count(),1);
         assert.equal((await prisma.aPIKey.findFirst()).displayName,"User name");
         assert.equal(JSON.parse((await prisma.appSetting.findUnique({where:{key:"llm.currentSelection"}})).value).provider,"old-provider");
-        for(let i=1;i<20;i++)await providers.create({name:"binding-"+i,model:"chat-model"});
+        const nativeFetch=global.fetch;let allowedOrigin="";
+        global.fetch=async(input,init)=>{
+          if(!allowedOrigin||!String(input).startsWith(allowedOrigin+"/"))throw new Error("Unmocked network request");
+          return nativeFetch(input,init);
+        };
+        const listener=load("app").createApp().listen(0,"127.0.0.1");
+        await require("node:events").once(listener,"listening");
+        allowedOrigin="http://127.0.0.1:"+listener.address().port;
+        const headers={authorization:"Bearer isolated-app-token","content-type":"application/json"};
+        try{
+          const created=await fetch(allowedOrigin+"/api/settings/custom-providers",{method:"POST",headers,
+            body:JSON.stringify({name:"HTTP binding",connectionType:"copilot_subscription",authorizationAccountId:"github_copilot",model:"chat-model"})});
+          assert.equal(created.status,201);const second=(await created.json()).data;
+          const settings=(await(await fetch(allowedOrigin+"/api/settings/api-keys",{headers})).json()).data;
+          const projected=settings.find(row=>row.provider===second.provider);
+          assert.equal(projected.isConfigured,true);assert.equal(projected.authorizationLogin,"fixture-user");
+          assert.equal(projected.currentBaseURL,"");assert.equal(projected.models.length,100);
+          const choices=(await(await fetch(allowedOrigin+"/api/llm/providers",{headers})).json()).data;
+          assert.equal(choices[second.provider].models.length,100);
+          const setup=(await(await fetch(allowedOrigin+"/api/settings/quick-setup/status",{headers})).json()).data;
+          assert.equal(setup.providers.find(row=>row.id===second.provider).configured,true);
+          const unsafe=await fetch(allowedOrigin+"/api/settings/api-keys/"+second.provider,{method:"PUT",headers,
+            body:JSON.stringify({key:"must-not-persist",model:"chat-model"})});
+          assert.equal(unsafe.status,400);assert.equal((await unsafe.json()).code,"COPILOT_BINDING_INVALID");
+          assert.equal((await prisma.aPIKey.findUnique({where:{provider:second.provider}})).key,null);
+          const rag=(await(await fetch(allowedOrigin+"/api/settings/rag",{headers})).json()).data;
+          const invalidEmbedding=await fetch(allowedOrigin+"/api/settings/rag",{method:"PUT",headers,
+            body:JSON.stringify({...rag,embeddingProvider:first.provider,embeddingModel:"chat-model"})});
+          assert.equal(invalidEmbedding.status,400);assert.match((await invalidEmbedding.json()).error,/Copilot/);
+          const configured=await fetch(allowedOrigin+"/api/settings/quick-setup/complete",{method:"POST",headers,
+            body:JSON.stringify({providerKind:"custom",provider:second.provider,customProviderName:"HTTP binding",model:"chat-model"})});
+          assert.equal(configured.status,200);assert.equal((await configured.json()).data.status.readyForCreation,true);
+          assert.equal((await prisma.aPIKey.findUnique({where:{provider:second.provider}})).connectionType,"copilot_subscription");
+        }finally{
+          await new Promise(resolve=>{listener.close(resolve);listener.closeAllConnections();});
+          global.fetch=nativeFetch;
+        }
+        for(let i=2;i<20;i++)await providers.create({name:"binding-"+i,model:"chat-model"});
         const projected=await providers.projection(first);assert.equal(projected.isConfigured,true);
         const factory=load("llm/factory");
         const resolved=await factory.resolveLLMClientOptions(first.provider,{executionMode:"structured",maxTokens:2000});
         assert.equal(resolved.apiKey,undefined);assert.equal(resolved.baseURL,SUBSCRIPTION_BASE_URL);
         assert.equal(resolved.maxTokens,1024);assert.deepEqual(resolved.structuredProfile.structuredModes,["prompt_only"]);
+        const usageBeforeFactory=await prisma.llmInvocationUsageRecord.count();
         const text=await factory.createLLMFromResolvedOptions(resolved).invoke("hello");
         assert.equal(text.content,'{"status":"ok"}');
-        assert.equal(await prisma.llmInvocationUsageRecord.count(),1,"one SDK invocation must produce one usage record");
+        assert.equal(await prisma.llmInvocationUsageRecord.count(),usageBeforeFactory+1,"one SDK invocation must produce one usage record");
         const compatibility=load("llm/compatibility");
         const identity={provider:first.provider,model:"chat-model",baseURL:SUBSCRIPTION_BASE_URL};
         const originalProfile=await compatibility.loadCapability(identity);
@@ -102,7 +156,7 @@ test("real Prisma bindings, factory, structured auth errors and process restart 
           maxTokens:64,maxRepairAttempts:1
         }),error=>terminalSubscriptionError(error)?.code==="COPILOT_AUTH_REQUIRED");
         assert.equal(calls,before+1,"authorization errors must not repeat or switch providers");
-        assert.equal(await prisma.llmInvocationUsageRecord.count(),2,"one failed physical call must not duplicate usage records");
+        assert.equal(await prisma.llmInvocationUsageRecord.count(),usageBeforeFactory+2,"one failed physical call must not duplicate usage records");
         assert.deepEqual(await prisma.appSetting.findUnique({where:{key:"llm.currentSelection"}}),selectionBefore);
         assert.ok(!logs.join("\n").includes("oauth-private"));assert.ok(!logs.join("\n").includes("short-private"));
         assert.ok(logs.some(line=>line.includes("subscription.request")));

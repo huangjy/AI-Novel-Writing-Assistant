@@ -112,6 +112,7 @@ declare module "electron" {
 
   interface Shell {
     openPath(path: string): Promise<string>;
+    openExternal(url: string): Promise<void>;
   }
 
   interface Clipboard {

@@ -154,6 +154,8 @@ export const queryKeys = {
     history: (threadId: string) => ["creative-hub", "history", threadId] as const,
   },
   settings: {
+    copilotAccount: ["settings", "authorization", "github-copilot"] as const,
+    authorizationSession: (id: string) => ["settings", "authorization-session", id] as const,
     apiKeys: ["settings", "api-keys"] as const,
     llmSelection: ["settings", "llm-selection"] as const,
     apiKeyBalances: ["settings", "api-key-balances"] as const,

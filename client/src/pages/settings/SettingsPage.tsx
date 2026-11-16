@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
-import type { LLMProvider, ProviderAuthMode, ReasoningEffort } from "@ai-novel/shared/types/llm";
+import type { LLMProvider, ProviderAuthMode, ProviderConnectionType, ReasoningEffort } from "@ai-novel/shared/types/llm";
 import {
   type APIKeyStatus,
   createCustomProvider,
@@ -19,6 +20,8 @@ import ProviderConfigDialog, { type ProviderFormState } from "./components/Provi
 import ProviderSettingsSection from "./components/ProviderSettingsSection";
 import SettingsActionResult from "./SettingsActionResult";
 import { AUTO_DIRECTOR_MOBILE_CLASSES } from "@/mobile/autoDirector";
+import { useCopilotAccount } from "./authorization/useCopilotAccount";
+import { connectionPayload, subscriptionModelOptions } from "./authorization/authorizationPolicy";
 
 function formatConnectionTestResult(response: Awaited<ReturnType<typeof testLLMConnection>>): string {
   const latency = response.data?.latency ?? 0;
@@ -38,10 +41,12 @@ function formatConnectionTestResult(response: Awaited<ReturnType<typeof testLLMC
 }
 
 export default function SettingsPage({ embedded = false }: { embedded?: boolean }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [editingProvider, setEditingProvider] = useState("");
   const [isCreatingCustomProvider, setIsCreatingCustomProvider] = useState(false);
   const [form, setForm] = useState<ProviderFormState>({
+    connectionType: "api_key",
     displayName: "",
     key: "",
     model: "",
@@ -73,13 +78,24 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     [editingProvider, providerConfigs],
   );
   const isDialogOpen = isCreatingCustomProvider || Boolean(editingProvider);
+  const copilotQuery = useCopilotAccount(isDialogOpen);
+  const copilotAccount = copilotQuery.data?.data;
+  const isSubscription = form.connectionType === "copilot_subscription";
   const isCustomDialog = isCreatingCustomProvider || editingConfig?.kind === "custom";
   const modelOptions = editingConfig?.models ?? [];
-  const selectableModels = isCreatingCustomProvider ? previewModels : modelOptions;
+  const selectableModels = isSubscription
+    ? subscriptionModelOptions(copilotAccount, editingConfig?.hiddenModels, form.model)
+    : isCreatingCustomProvider ? previewModels : modelOptions;
+  useEffect(() => {
+    if (isSubscription && !form.model && selectableModels[0]) {
+      setForm(previous => ({ ...previous, model: selectableModels[0] }));
+    }
+  }, [isSubscription, form.model, selectableModels[0]]);
   const resetDialogState = () => {
     setEditingProvider("");
     setIsCreatingCustomProvider(false);
     setForm({
+      connectionType: "api_key",
       displayName: "",
       key: "",
       model: "",
@@ -101,6 +117,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       queryClient.invalidateQueries({ queryKey: queryKeys.llm.providers }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.quickSetup }),
       queryClient.invalidateQueries({ queryKey: queryKeys.onboarding.firstNovel }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.copilotAccount }),
     ]);
   };
 
@@ -132,6 +149,8 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
   const saveMutation = useMutation({
     mutationFn: (payload: {
       provider: LLMProvider;
+      connectionType?: ProviderConnectionType;
+      authorizationAccountId?: string;
       displayName?: string;
       key?: string;
       model?: string;
@@ -142,6 +161,8 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       requestIntervalMs?: number;
     }) =>
       saveAPIKeySetting(payload.provider, {
+        connectionType: payload.connectionType,
+        authorizationAccountId: payload.authorizationAccountId,
         displayName: payload.displayName,
         key: payload.key,
         model: payload.model,
@@ -164,10 +185,12 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
   const createCustomProviderMutation = useMutation({
     mutationFn: (payload: {
       name: string;
+      connectionType?: ProviderConnectionType;
+      authorizationAccountId?: string;
       key?: string;
       model?: string;
       imageModel?: string;
-      baseURL: string;
+      baseURL?: string;
       authMode?: ProviderAuthMode;
       concurrencyLimit?: number;
       requestIntervalMs?: number;
@@ -290,6 +313,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     setEditingProvider(provider);
     setForm({
       displayName: config.displayName ?? config.name,
+      connectionType: config.connectionType ?? "api_key",
       key: "",
       model: config.currentModel,
       imageModel: config.currentImageModel ?? config.defaultImageModel ?? "",
@@ -308,6 +332,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     setEditingProvider("");
     setIsCreatingCustomProvider(true);
     setForm({
+      connectionType: "api_key",
       displayName: "",
       key: "",
       model: "",
@@ -328,6 +353,15 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     setPreviewModelsResult("");
   };
 
+  useEffect(() => {
+    const requested = searchParams.get("provider");
+    if (!requested || !providerConfigs.some(provider => provider.provider === requested)) return;
+    openBuiltInDialog(requested);
+    const next = new URLSearchParams(searchParams);
+    next.delete("provider");
+    setSearchParams(next, { replace: true });
+  }, [providerConfigs, searchParams, setSearchParams]);
+
   const handlePreviewCustomModels = () => {
     setPreviewModelsResult("");
     previewCustomProviderModelsMutation.mutate({
@@ -338,6 +372,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
   };
 
   const handleSubmitProviderDialog = () => {
+    const connection = connectionPayload(form.connectionType, copilotAccount?.id);
     if (isCreatingCustomProvider) {
       createCustomProviderMutation.mutate({
         name: form.displayName.trim(),
@@ -348,6 +383,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
         authMode: form.authMode,
         concurrencyLimit: Number.parseInt(form.concurrencyLimit, 10) || 0,
         requestIntervalMs: Number.parseInt(form.requestIntervalMs, 10) || 0,
+        ...connection,
       });
       return;
     }
@@ -364,6 +400,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       authMode: isCustomDialog ? form.authMode : undefined,
       concurrencyLimit: Number.parseInt(form.concurrencyLimit, 10) || 0,
       requestIntervalMs: Number.parseInt(form.requestIntervalMs, 10) || 0,
+      ...connection,
     });
   };
 
@@ -399,9 +436,9 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     testMutation.mutate(
       {
         provider: editingProvider || "custom_preview",
-        apiKey: form.key.trim() ? form.key : undefined,
+        apiKey: !isSubscription && form.key.trim() ? form.key : undefined,
         model: form.model.trim() || undefined,
-        baseURL: form.baseURL.trim() ? form.baseURL : undefined,
+        baseURL: !isSubscription && form.baseURL.trim() ? form.baseURL : undefined,
         authMode: isCustomDialog ? form.authMode : undefined,
         probeMode: "both",
       },
@@ -439,7 +476,9 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     || previewCustomProviderModelsMutation.isPending
     || (!isCreatingCustomProvider && !form.model.trim())
     || (isCustomDialog && !form.displayName.trim())
-    || (isCreatingCustomProvider && !form.baseURL.trim())
+    || (isCreatingCustomProvider && !isSubscription && !form.baseURL.trim())
+    || (isSubscription && (!form.model || (copilotAccount?.state !== "authorized"
+      && (!editingConfig || form.model !== editingConfig.currentModel))))
     || (!isCustomDialog && editingConfig?.requiresApiKey !== false && !form.key.trim() && !editingConfig?.isConfigured);
   const providerSubmitLabel = isSavingProvider ? "保存中..." : isCreatingCustomProvider ? "创建厂商" : "保存";
 
@@ -498,6 +537,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
         isCreatingCustomProvider={isCreatingCustomProvider}
         isCustomDialog={isCustomDialog}
         editingConfig={editingConfig}
+        copilotAccount={copilotAccount}
         form={form}
         setForm={setForm}
         selectableModels={selectableModels}
@@ -509,7 +549,10 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
         submitDisabled={providerSubmitDisabled}
         submitLabel={providerSubmitLabel}
         onTest={handleTestProviderDialog}
-        testDisabled={testMutation.isPending || !form.model.trim() || !form.baseURL.trim()}
+        testDisabled={testMutation.isPending || !form.model.trim()
+          || (isSubscription
+            ? isCreatingCustomProvider || editingConfig?.connectionType !== "copilot_subscription" || copilotAccount?.state !== "authorized"
+            : !form.baseURL.trim())}
         testResult={dialogTestResult}
         onDeleteCustomProvider={handleDeleteCustomProvider}
         deleteDisabled={deleteCustomProviderMutation.isPending}

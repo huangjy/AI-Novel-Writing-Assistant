@@ -5,7 +5,7 @@ import type {
 import type { DirectorIssuePolicy } from "@ai-novel/shared/types/directorIssue";
 import type {DirectorChapterBudgetSettings} from "@ai-novel/shared/types/director/chapterBudget";
 
-import type { LLMProvider, ProviderAuthMode, ReasoningEffort } from "@ai-novel/shared/types/llm";
+import type { LLMProvider, ProviderAuthMode, ProviderConnectionType, ReasoningEffort } from "@ai-novel/shared/types/llm";
 import type {
   ModelRouteConfig,
   ModelRouteRequestProtocol,
@@ -25,6 +25,11 @@ export async function saveDirectorChapterBudgetSettings(payload: DirectorChapter
 export type EmbeddingProvider = LLMProvider;
 
 export interface APIKeyStatus {
+  connectionType?: ProviderConnectionType;
+  authorizationAccountId?: string | null;
+  authorizationState?: string;
+  authorizationLogin?: string | null;
+  readiness?: string;
   provider: LLMProvider;
   kind: "builtin" | "custom";
   name: string;
@@ -371,6 +376,8 @@ export async function saveAPIKeySetting(
   provider: LLMProvider,
   payload: {
     displayName?: string;
+    connectionType?: ProviderConnectionType;
+    authorizationAccountId?: string;
     key?: string;
     model?: string;
     imageModel?: string;
@@ -407,11 +414,13 @@ export async function saveAPIKeySetting(
 }
 
 export async function createCustomProvider(payload: {
+  connectionType?: ProviderConnectionType;
+  authorizationAccountId?: string;
   name: string;
   key?: string;
   model?: string;
   imageModel?: string;
-  baseURL: string;
+  baseURL?: string;
   authMode?: ProviderAuthMode;
   isActive?: boolean;
   reasoningEnabled?: boolean;

@@ -22,6 +22,7 @@ export interface CopilotModel {
 }
 
 export interface AuthorizationSession {
+  phase?: "authorizing" | "validating" | "saving";
   id: string;
   state: AuthorizationSessionState;
   verificationUri: string;

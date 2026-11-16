@@ -107,6 +107,12 @@ export async function quitAndInstallDesktopUpdate(): Promise<void> {
 export async function openDesktopLogsDirectory(): Promise<void> {
   await getDesktopBridge()?.openLogsDirectory?.();
 }
+export async function openCopilotLoginInBrowser(): Promise<boolean> {
+  const open = getDesktopBridge()?.openCopilotLogin;
+  if (!open) return false;
+  await open();
+  return true;
+}
 
 export async function copyDesktopLogPath(): Promise<string | undefined> {
   return getDesktopBridge()?.copyLogPath?.();

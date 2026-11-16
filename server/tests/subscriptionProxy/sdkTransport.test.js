@@ -64,6 +64,14 @@ test("stream truncation and upstream authorization errors are terminal with no h
     return terminalSubscriptionError(error)?.code === "COPILOT_AUTH_REQUIRED";
   });
   assert.equal(denied.calls.length, 1);
+  const broken = await fixture(t, () => new Response(new ReadableStream({
+    start(controller) { controller.error(new Error("raw-upstream-stream-secret")); },
+  }), { headers: { "content-type": "text/event-stream" } }));
+  await assert.rejects(async () => { for await (const _chunk of await broken.sdk().stream("hello")) {} },
+    error => {
+      assert.ok(!error.message.includes("raw-upstream-stream-secret"));
+      return terminalSubscriptionError(error)?.code === "COPILOT_STREAM_INTERRUPTED";
+    });
 });
 
 test("unsupported transports, capabilities and origins are rejected before credential dispatch", async t => {

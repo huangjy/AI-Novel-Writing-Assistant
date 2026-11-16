@@ -15,6 +15,8 @@
   密钥丢失时不得自动生成并覆盖既有密文，应恢复原目录或由用户退出后重新授权。
 - Web 使用 `AI_NOVEL_CREDENTIALS_DIR` 指定持久化私有目录；默认在服务端 `storage/credentials`。
   桌面使用 userData 下的 `credentials`。凭据目录不属于日志包或普通数据库导出内容。
+- 桌面打开 GitHub 登录通过受限 IPC：只接受主渲染器 sender，仅打开固定 HTTPS 设备授权页面，
+  不接收任意 URL，也不把应用访问令牌注入外部浏览器。Web 使用经过后端校验的 GitHub 验证链接。
 - 订阅错误应保持类型化，不作为输出格式问题进入 JSON 修复，不因账户失效静默切换到其他厂商。
 - Copilot 需重新授权使用 `COPILOT_AUTH_REQUIRED` 与 HTTP 409，不能使用应用访问鉴权的 401；
   否则前端会把上游订阅失效误当成应用访问令牌过期，跳转到错误入口。

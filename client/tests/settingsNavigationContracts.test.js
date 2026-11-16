@@ -8,6 +8,7 @@ const read = (path) => readFile(new URL(path, root), "utf8");
 test("设置路由提供独立页面与模型路由配置", async () => {
   const source = await read("src/router/index.tsx");
   assert.match(source, /path: "settings\/models", element: <ModelsSettingsPage \/>/);
+  assert.match(source, /path: "settings\/authorization", element: <AuthorizationSettingsPage \/>/);
   assert.match(source, /path: "settings\/director", element: <DirectorSettingsPage \/>/);
   assert.match(source, /path: "settings\/knowledge", element: <KnowledgeSettingsPage \/>/);
   assert.match(source, /path: "settings\/maintenance", element: <MaintenanceSettingsPage \/>/);
@@ -20,7 +21,7 @@ test("系统导航只保留设置入口，设置页提供稳定二级导航", as
     read("src/pages/settings/components/SettingsShell.tsx"),
   ]);
   assert.doesNotMatch(sidebar, /label: "模型路由"/);
-  for (const label of ["设置总览", "模型与厂商", "自动导演", "知识库与写法", "桌面与维护"]) {
+  for (const label of ["设置总览", "模型与厂商", "授权中心", "自动导演", "知识库与写法", "桌面与维护"]) {
     assert.match(shell, new RegExp(label));
   }
 });

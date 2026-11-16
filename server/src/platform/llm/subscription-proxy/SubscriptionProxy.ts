@@ -87,6 +87,9 @@ export class SubscriptionProxy {
       let finished = false;
       const started = Date.now();
       let queueWaitMs = 0;
+      let outcome = "failed";
+      let errorCode: string | undefined;
+      let httpStatus: number | undefined;
       const finish = async () => {
         if (finished) return;
         finished = true;
@@ -97,8 +100,12 @@ export class SubscriptionProxy {
         await reader?.cancel().catch(() => undefined);
         reader?.releaseLock();
         release?.();
-        console.info("[subscription.request]", JSON.stringify({ outcome: controller.signal.aborted ? "cancelled" : "finished",
-          transport: model.transport, queueWaitMs, durationMs: Date.now() - started }));
+        const reason = controller.signal.reason;
+        console.info("[subscription.request]", JSON.stringify({
+          provider, model: expectedModel, outcome: controller.signal.aborted ? "cancelled" : outcome,
+          code: errorCode ?? (reason instanceof SubscriptionError ? reason.code : undefined),
+          httpStatus, transport: model.transport, queueWaitMs, durationMs: Date.now() - started,
+        }));
       };
       const onAbort = () => { void finish(); };
       controller.signal.addEventListener("abort", onAbort, { once: true });
@@ -123,6 +130,7 @@ export class SubscriptionProxy {
           },
           body: JSON.stringify(body),
         });
+        httpStatus = response.status;
         if (!response.ok) {
           await response.body?.cancel();
           if (response.status === 401) {
@@ -170,6 +178,7 @@ export class SubscriptionProxy {
                   }
                 }
                 if (!terminal) throw new SubscriptionError("COPILOT_STREAM_INTERRUPTED", "模型流在完成前断开，请重试。", 502);
+                outcome = "success";
                 await finish(); output.close();
               } else {
                 if (body.stream) parseEvents(next.value);
@@ -181,15 +190,26 @@ export class SubscriptionProxy {
                 }
                 output.enqueue(next.value);
               }
-            } catch (error) { await finish(); output.error(error); }
+            } catch (error) {
+              const safe = controller.signal.aborted ? controller.signal.reason
+                : error instanceof SubscriptionError ? error
+                  : new SubscriptionError("COPILOT_STREAM_INTERRUPTED", "Copilot 响应流无法继续读取，请重试。", 502);
+              errorCode = safe instanceof SubscriptionError ? safe.code : "COPILOT_STREAM_INTERRUPTED";
+              await finish(); output.error(safe);
+            }
           },
-          cancel: async reason => { if (!terminal) controller.abort(reason); await finish(); },
+          cancel: async reason => {
+            if (body.stream && terminal) outcome = "success";
+            if (!terminal) controller.abort(reason);
+            await finish();
+          },
         }, { highWaterMark: 0 });
         return new Response(stream, {
           status: response.status,
           headers: { "content-type": response.headers.get("content-type") ?? (body.stream ? "text/event-stream" : "application/json") },
         });
       } catch (error) {
+        errorCode = error instanceof SubscriptionError ? error.code : "COPILOT_UPSTREAM_UNAVAILABLE";
         await finish();
         if (error instanceof SubscriptionError || controller.signal.aborted) throw controller.signal.reason ?? error;
         throw new SubscriptionError("COPILOT_UPSTREAM_UNAVAILABLE", "Copilot 连接失败，请稍后重试。", 502);

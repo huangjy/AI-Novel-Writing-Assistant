@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   CircleAlert,
+  Github,
   KeyRound,
   Loader2,
   PlugZap,
@@ -87,6 +88,7 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
     () => props.status?.providers.find((provider) => provider.id === form.provider) ?? null,
     [form.provider, props.status?.providers],
   );
+  const subscription = selectedProvider?.connectionType === "copilot_subscription";
   const recommendedProvider = useMemo(
     () => props.status?.providers.find((provider) => provider.id === props.status?.selectedProvider)
       ?? props.status?.providers.find((provider) => provider.id === "deepseek")
@@ -98,7 +100,7 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
   const providerChoices: QuickSetupProviderOption[] = showAllProviderChoices
     ? props.status?.providers ?? []
     : preferredProvider ? [preferredProvider] : [];
-  const modelOptions = form.providerKind === "custom"
+  const modelOptions = subscription ? selectedProvider?.models ?? [] : form.providerKind === "custom"
     ? customModels
     : selectedProvider?.models ?? [];
 
@@ -199,7 +201,7 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
   const hasSavedKey = selectedProvider?.configured === true;
   const canSubmit = Boolean(
     form.model.trim()
-    && form.baseURL.trim()
+    && (subscription ? selectedProvider?.configured : form.baseURL.trim())
     && (form.providerKind === "builtin" ? form.provider : form.customProviderName.trim())
     && (!requiresApiKey || form.apiKey.trim() || hasSavedKey),
   );
@@ -214,8 +216,8 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
       providerKind: form.providerKind,
       ...(form.provider ? { provider: form.provider } : {}),
       ...(form.providerKind === "custom" ? { customProviderName: form.customProviderName.trim() } : {}),
-      ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
-      baseURL: form.baseURL.trim(),
+      ...(!subscription && form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
+      ...(!subscription ? { baseURL: form.baseURL.trim() } : {}),
       model: form.model.trim(),
     });
   };
@@ -266,6 +268,9 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
         footer={footer}
         footerClassName="gap-2"
       >
+        <Button asChild size="sm" variant="ghost" className="mb-4">
+          <Link to="/settings/authorization" onClick={() => props.onOpenChange(false)}><Github className="h-4 w-4" />使用 GitHub Copilot 订阅</Link>
+        </Button>
         <div className="mb-6 grid grid-cols-3 gap-2">
           {[
             { index: 1, label: "选择厂商" },
@@ -374,18 +379,19 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
         ) : step === 2 ? (
           <div className="space-y-5">
             <div>
-              <h3 className="font-semibold">{form.providerKind === "custom" ? "添加第三方厂商" : `连接 ${selectedProvider?.name ?? "模型厂商"}`}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">API Key 只会保存到本机或服务端密钥存储，不会显示在完成结果中。</p>
-              {form.providerKind === "custom" ? (
+              <h3 className="font-semibold">{subscription ? `连接 ${selectedProvider?.name}` : form.providerKind === "custom" ? "添加第三方厂商" : `连接 ${selectedProvider?.name ?? "模型厂商"}`}</h3>
+              {!subscription ? <p className="mt-1 text-sm text-muted-foreground">API Key 只会保存到本机或服务端密钥存储，不会显示在完成结果中。</p> : null}
+              {form.providerKind === "custom" && !subscription ? (
                 <p className="mt-1 text-xs text-muted-foreground">厂商名称、API 地址和模型将保存为独立配置，不会覆盖已有内置厂商。</p>
               ) : null}
             </div>
-            {form.providerKind === "custom" ? (
+            {form.providerKind === "custom" && !subscription ? (
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium">厂商名称</span>
                 <Input value={form.customProviderName} placeholder="例如：我的模型网关" onChange={(event) => setForm((current) => ({ ...current, customProviderName: event.target.value }))} />
               </label>
             ) : null}
+            {!subscription ? <>
             <label className="block space-y-1.5">
               <span className="flex items-center gap-2 text-sm font-medium"><KeyRound className="h-4 w-4" /> API Key {requiresApiKey ? "" : "（可选）"}</span>
               <Input
@@ -409,6 +415,7 @@ export default function QuickSetupDialog(props: QuickSetupDialogProps) {
                 {customModelsMessage ? <span className="text-xs text-muted-foreground">{customModelsMessage}</span> : null}
               </div>
             ) : null}
+            </> : null}
             {modelOptions.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {modelOptions.slice(0, 8).map((model) => (

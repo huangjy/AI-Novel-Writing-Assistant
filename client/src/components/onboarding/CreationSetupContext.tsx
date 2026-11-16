@@ -79,6 +79,10 @@ export function CreationSetupProvider({ children }: { children: ReactNode }) {
   }, [readyForCreation]);
 
   useEffect(() => {
+    if (location.pathname === "/settings/authorization") {
+      setDialogOpen(false);
+      return;
+    }
     if (automaticPromptChecked || !statusQuery.isSuccess || modelSettingsOpen) {
       return;
     }
@@ -92,11 +96,12 @@ export function CreationSetupProvider({ children }: { children: ReactNode }) {
       readyForCreation,
       dismissed: window.localStorage.getItem(DISMISSED_STORAGE_KEY) === "true",
       modelSettingsOpen,
+      pathname: location.pathname,
     })) {
       setForceConfiguration(false);
       setDialogOpen(true);
     }
-  }, [automaticPromptChecked, modelSettingsOpen, readyForCreation, statusQuery.isSuccess]);
+  }, [automaticPromptChecked, modelSettingsOpen, readyForCreation, statusQuery.isSuccess, location.pathname]);
 
   useEffect(() => {
     if (shouldOpenSetupPromptForRoute({

@@ -42,6 +42,8 @@ test("logout aborts an in-flight response and rejects the same prebuilt client a
 });
 
 test("binding validation and 403 errors preserve safe typed failures", async t => {
+  const logs = [];
+  t.mock.method(console, "info", (...args) => logs.push(args.join(" ")));
   const f = await fixture(t, () => new Response("raw-secret", { status: 403 }));
   await assert.rejects(() => f.request(), error => {
     assert.equal(error.code, "COPILOT_ACCESS_DENIED"); assert.ok(!error.message.includes("raw-secret")); return true;
@@ -49,6 +51,11 @@ test("binding validation and 403 errors preserve safe typed failures", async t =
   f.port.assertBinding = async () => { throw new SubscriptionError("COPILOT_BINDING_INVALID", "binding changed", 409); };
   await assert.rejects(() => f.request(), { code: "COPILOT_BINDING_INVALID" });
   assert.equal(f.calls.length, 1);
+  const records = logs.filter(line => line.startsWith("[subscription.request] ")).map(line => JSON.parse(line.slice("[subscription.request] ".length)));
+  assert.equal(records[0].outcome, "failed");
+  assert.equal(records[0].httpStatus, 403);
+  assert.equal(records[0].code, "COPILOT_ACCESS_DENIED");
+  assert.ok(!logs.join("\n").includes("raw-secret"));
 });
 
 test("the explicit deadline includes a body stalled after response headers and releases its permit", async t => {

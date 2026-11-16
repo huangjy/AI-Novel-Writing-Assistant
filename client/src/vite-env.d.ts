@@ -90,6 +90,7 @@ interface Window {
     checkForUpdates?: () => Promise<unknown>;
     quitAndInstall?: () => Promise<unknown>;
     openLogsDirectory?: () => Promise<unknown>;
+    openCopilotLogin?: () => Promise<void>;
     copyLogPath?: () => Promise<string | undefined>;
     bundleLogs?: () => Promise<string | null>;
     restartApp?: () => Promise<unknown>;

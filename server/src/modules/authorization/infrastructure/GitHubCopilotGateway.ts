@@ -10,20 +10,20 @@ const deviceSchema = z.object({
 const tokenSchema = z.object({ token: z.string().min(1), expires_at: z.number().positive() });
 const userSchema = z.object({ id: z.union([z.number(), z.string()]), login: z.string().min(1) });
 const modelSchema = z.object({
-  id: z.string().min(1), name: z.string().optional(), model_picker_enabled: z.boolean().optional(),
-  supported_endpoints: z.array(z.string()).default([]),
+  id: z.string().min(1), name: z.string().nullish(), model_picker_enabled: z.boolean().optional(),
+  supported_endpoints: z.array(z.string()).default([]).catch([]),
   capabilities: z.object({
     type: z.string().optional(),
     limits: z.object({
-      max_prompt_tokens: z.number().positive().optional(),
-      max_context_window_tokens: z.number().positive().optional(),
-      max_output_tokens: z.number().positive().optional(),
-    }).optional(),
+      max_prompt_tokens: z.number().positive().optional().catch(undefined),
+      max_context_window_tokens: z.number().positive().optional().catch(undefined),
+      max_output_tokens: z.number().positive().optional().catch(undefined),
+    }).nullish(),
     supports: z.object({
-      tool_calls: z.boolean().optional(), parallel_tool_calls: z.boolean().optional(),
-      structured_outputs: z.boolean().optional(), reasoning_effort: z.array(z.string()).optional(),
-    }).optional(),
-  }).optional(),
+      tool_calls: z.boolean().optional().catch(undefined), parallel_tool_calls: z.boolean().optional().catch(undefined),
+      structured_outputs: z.boolean().optional().catch(undefined), reasoning_effort: z.array(z.string()).optional().catch(undefined),
+    }).nullish(),
+  }).nullish(),
 });
 
 export function validateCopilotOrigin(raw: string): string {

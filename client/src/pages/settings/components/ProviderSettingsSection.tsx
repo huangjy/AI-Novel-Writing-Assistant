@@ -4,7 +4,7 @@ import type { LLMProvider, ReasoningEffort } from "@ai-novel/shared/types/llm";
 import type { APIKeyStatus, ProviderBalanceStatus } from "@/api/settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { showProvider } from "../authorization/authorizationPolicy";
 import { AppDialogContent, Dialog } from "@/components/ui/dialog";
 import { AUTO_DIRECTOR_MOBILE_CLASSES } from "@/mobile/autoDirector";
 import { cn } from "@/lib/utils";
@@ -71,32 +71,32 @@ export default function ProviderSettingsSection(props: {
     };
   });
   const visibleViewModels = useMemo(
-    () => viewModels.filter(({ provider }) => provider.isConfigured && provider.isActive),
+    () => viewModels.filter(({ provider }) => showProvider(provider)),
     [viewModels],
   );
   const addableBuiltIns = providers.filter((provider) => provider.kind === "builtin" && (!provider.isConfigured || !provider.isActive));
 
   return (
-    <Card
+    <section
       id={embedded ? undefined : "settings-provider-section"}
       className={cn(
-        "min-w-0 scroll-mt-20 overflow-hidden",
-        embedded ? "border-0 bg-transparent shadow-none" : "border-primary/10 bg-gradient-to-b from-primary/[0.035] to-background shadow-sm",
+        "min-w-0 scroll-mt-20",
+        embedded && "bg-transparent",
       )}
     >
-      <CardHeader className={cn("flex flex-col gap-4 border-b bg-background/60 sm:flex-row sm:items-start sm:justify-between", embedded && "bg-transparent px-0 pt-0")}>
+      <header className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
             <Sparkles className="h-5 w-5" />
           </div>
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <CardTitle>模型厂商</CardTitle>
-              <Badge variant={visibleViewModels.length ? "default" : "outline"}>{visibleViewModels.length} 个可用连接</Badge>
+              <h2 className="text-base font-semibold">模型厂商</h2>
+              <Badge variant="outline">{viewModels.filter(({ provider }) => provider.isConfigured && provider.isActive).length} 个可用连接</Badge>
             </div>
-          <CardDescription className={AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}>
+          <p className={`text-sm text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
               添加一个可用文本模型后就能开始创作；路由和高级参数可按需再设置。
-          </CardDescription>
+          </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -104,8 +104,8 @@ export default function ProviderSettingsSection(props: {
             <Plus className="h-4 w-4" /> 添加厂商
           </Button>
         </div>
-      </CardHeader>
-      <CardContent className={cn("grid min-w-0 gap-4 pt-5 md:grid-cols-2", embedded && "px-0 pb-0")}>
+      </header>
+      <div className="grid min-w-0 gap-4 pt-5 md:grid-cols-2">
         {visibleViewModels.map((item) => (
           <ProviderStatusCard
             key={item.provider.provider}
@@ -122,13 +122,13 @@ export default function ProviderSettingsSection(props: {
           />
         ))}
         {!visibleViewModels.length ? (
-          <div className="rounded-xl border border-dashed bg-background/70 p-6 text-center text-sm text-muted-foreground md:col-span-2">
+          <div className="bg-muted/20 p-6 text-center text-sm text-muted-foreground md:col-span-2">
             <PlugZap className="mx-auto mb-3 h-6 w-6 text-primary" />
             <div className="font-medium text-foreground">还没有可用的模型连接</div>
             <div className="mt-1">添加内置厂商或自定义服务后，即可配置第一个文本模型。</div>
           </div>
         ) : null}
-      </CardContent>
+      </div>
       <Dialog open={isAddProviderOpen} onOpenChange={setIsAddProviderOpen}>
         <AppDialogContent
           title="添加模型厂商"
@@ -140,7 +140,7 @@ export default function ProviderSettingsSection(props: {
               <button
                 key={provider.provider}
                 type="button"
-                className="rounded-xl border bg-background p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:shadow-sm"
+                className="rounded-md bg-muted/25 p-4 text-left transition-colors hover:bg-muted/60"
                 onClick={() => {
                   setIsAddProviderOpen(false);
                   onOpenConfig(provider.provider);
@@ -152,7 +152,7 @@ export default function ProviderSettingsSection(props: {
             ))}
             <button
               type="button"
-              className="rounded-xl border border-dashed bg-background p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:shadow-sm"
+              className="rounded-md bg-muted/25 p-4 text-left transition-colors hover:bg-muted/60"
               onClick={() => {
                 setIsAddProviderOpen(false);
                 onCreateCustomProvider();
@@ -167,6 +167,6 @@ export default function ProviderSettingsSection(props: {
           ) : null}
         </AppDialogContent>
       </Dialog>
-    </Card>
+    </section>
   );
 }

@@ -7,11 +7,15 @@ test("transport selection uses explicit endpoint capabilities, not model names",
     { id: "misleading-gpt", supported_endpoints: ["/chat/completions", "/responses"] },
     { id: "unknown", supported_endpoints: [] },
     { id: "hidden", model_picker_enabled: false, supported_endpoints: ["/responses"] },
+    { id: "optional-unknown", supported_endpoints: ["/chat/completions"], capabilities: {
+      supports: { tool_calls: "unknown", reasoning_effort: false },
+    } },
   ] });
   assert.deepEqual(models.map(m => [m.id, m.transport]), [
-    ["misleading-claude", "responses"], ["misleading-gpt", "chat"], ["unknown", null],
+    ["misleading-claude", "responses"], ["misleading-gpt", "chat"], ["unknown", null], ["optional-unknown", "chat"],
   ]);
   assert.equal(models[0].supportsTools, false);
+  assert.equal(models[3].supportsTools, false, "unknown optional metadata must not become a supported capability");
   for (const raw of ["http://api.githubcopilot.com", "https://api.githubcopilot.com.evil.test",
     "https://user@api.githubcopilot.com", "https://127.0.0.1", "https://api.githubcopilot.com/path"]) {
     assert.throws(() => validateCopilotOrigin(raw), { code: "COPILOT_INVALID_UPSTREAM" });

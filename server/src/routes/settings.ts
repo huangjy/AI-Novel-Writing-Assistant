@@ -451,8 +451,13 @@ router.put(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof ragSettingsSchema>;
+      const existingEmbeddingProvider = !isBuiltInProvider(body.embeddingProvider) || body.embeddingApiKey || body.embeddingBaseURL
+        ? await secretStore.getProvider(body.embeddingProvider) : null;
+      if (existingEmbeddingProvider?.connectionType === "copilot_subscription") {
+        throw new AppError("Copilot 订阅仅支持文本生成，请为知识库选择独立的向量服务。", 400);
+      }
       if (body.embeddingApiKey || body.embeddingBaseURL) {
-        const existing = await secretStore.getProvider(body.embeddingProvider);
+        const existing = existingEmbeddingProvider;
         const record = await secretStore.upsertProvider(body.embeddingProvider, {
           key: body.embeddingApiKey ?? existing?.key ?? null,
           baseURL: body.embeddingBaseURL

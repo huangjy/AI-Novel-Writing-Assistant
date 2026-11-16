@@ -100,6 +100,7 @@ async function listProviderOptions(): Promise<QuickSetupProviderOption[]> {
       return {
         id: record.provider,
         kind: "custom",
+        connectionType: record.connectionType === "copilot_subscription" ? "copilot_subscription" : "api_key",
         name: normalizeOptionalText(record.displayName) ?? record.provider,
         requiresApiKey: false,
         configured: subscription ? subscription.isConfigured : record.isActive && Boolean(currentModel && currentBaseURL),
@@ -173,6 +174,7 @@ export async function getQuickSetupStatus(): Promise<QuickSetupStatus> {
 }
 
 async function resolveProviderInput(input: CompleteQuickSetupRequest): Promise<{
+  subscription?: boolean;
   provider: LLMProvider;
   displayName?: string;
   existingKey?: string;
@@ -200,6 +202,7 @@ async function resolveProviderInput(input: CompleteQuickSetupRequest): Promise<{
   return {
     provider,
     displayName,
+    subscription: existing?.connectionType === "copilot_subscription",
     existingKey: normalizeOptionalText(existing?.key),
     existingBaseURL: normalizeOptionalText(existing?.baseURL),
   };
@@ -211,17 +214,21 @@ export async function completeQuickSetup(
   const resolvedInput = await resolveProviderInput(input);
   const provider = resolvedInput.provider;
   const model = input.model.trim();
+  const subscription = resolvedInput.subscription === true;
   const apiKey = normalizeOptionalText(input.apiKey) ?? resolvedInput.existingKey;
   const baseURL = normalizeOptionalText(input.baseURL)
     ?? resolvedInput.existingBaseURL
     ?? (isBuiltInProvider(provider) ? PROVIDERS[provider].baseURL : undefined);
+  if (subscription && (apiKey || baseURL)) {
+    throw new AppError("Copilot 订阅连接不需要 API Key 或 API 地址，请从授权中心管理账户。", 400);
+  }
   if (!model) {
     throw new AppError("请选择或填写一个文本模型。", 400);
   }
   if (isBuiltInProvider(provider) && providerRequiresApiKey(provider) && !apiKey) {
     throw new AppError("请填写 API Key。", 400);
   }
-  if (!baseURL) {
+  if (!baseURL && !subscription) {
     throw new AppError("请填写 API 地址。", 400);
   }
 
@@ -242,7 +249,12 @@ export async function completeQuickSetup(
     throw new AppError(`模型检测未通过。${details}`, 400);
   }
 
-  const record = await secretStore.upsertProvider(provider, {
+  if (subscription) {
+    const { getCopilotRuntime } = await import("../../../authorization");
+    await getCopilotRuntime().providers.update(provider, { model });
+    setProviderSecretCache(provider, null);
+  } else {
+    const record = await secretStore.upsertProvider(provider, {
     ...(resolvedInput.displayName ? { displayName: resolvedInput.displayName } : {}),
     key: apiKey ?? null,
     model,
@@ -262,6 +274,7 @@ export async function completeQuickSetup(
     concurrencyLimit: record.concurrencyLimit ?? 0,
     requestIntervalMs: record.requestIntervalMs ?? 0,
   });
+  }
   evictSharedLimiters(provider);
 
   await saveLLMSelectionSettings({ provider, model });

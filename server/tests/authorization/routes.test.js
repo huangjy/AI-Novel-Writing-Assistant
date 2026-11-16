@@ -24,12 +24,21 @@ test("authorization management inherits app protection and never provides a publ
   const status = await fetch(`${base}/accounts/github-copilot`, { headers });
   assert.equal(status.headers.get("cache-control"), "no-store");
   assert.equal((await status.json()).data.state, "signed_out");
+  const refreshDenied = await fetch(`${base}/accounts/github-copilot/refresh-models`, { method: "POST", headers, body: "{}" });
+  assert.equal(refreshDenied.status, 409);
+  assert.equal((await refreshDenied.json()).code, "COPILOT_AUTH_REQUIRED");
   const started = await fetch(`${base}/accounts/github-copilot/login-sessions`, {
     method: "POST", headers, body: JSON.stringify({ idempotencyKey: "allowed-request" }),
   });
   const payload = await started.json();
   assert.equal(payload.data.userCode, "VISIBLE-CODE");
   assert.ok(!JSON.stringify(payload).includes("device-secret"));
+  await f.service.poll(payload.data.id);
+  let explicitRefreshes = 0;
+  f.service.setAuthorizedHandler(async () => { explicitRefreshes++; });
+  const refresh = await fetch(`${base}/accounts/github-copilot/refresh-models`, { method: "POST", headers, body: "{}" });
+  assert.equal(refresh.status, 200);
+  assert.equal(explicitRefreshes, 1);
   const absent = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers, body: "{}" });
   assert.equal(absent.status, 404);
 });

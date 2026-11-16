@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpenCheck, Bot, Database, MonitorCog, Route } from "lucide-react";
+import { ArrowRight, BookOpenCheck, Bot, Database, KeyRound, MonitorCog, Route } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   getAPIKeySettings,
@@ -18,6 +18,7 @@ import { APP_RUNTIME } from "@/lib/constants";
 
 const entries = [
   { to: "/settings/models", title: "模型与厂商", description: "添加模型厂商、选择模型并管理连接。", icon: Bot },
+  { to: "/settings/authorization", title: "授权中心", description: "登录 GitHub Copilot，管理订阅账户与关联厂商。", icon: KeyRound },
   { to: "/settings/model-routes", title: "模型路由管理", description: "为不同创作任务选择模型并检查连接状态。", icon: Route },
   { to: "/settings/director", title: "自动导演", description: "安排问题处理、确认偏好与提醒方式。", icon: BookOpenCheck },
   { to: "/settings/knowledge", title: "知识库与写法", description: "让资料和写法偏好参与后续创作。", icon: Database },
@@ -61,6 +62,7 @@ export default function SettingsOverviewPage() {
               ? rag?.enabled ? `资料检索已开启 · ${rag.embeddingModel || "未选择向量模型"}` : "可选增强，暂不影响开始创作"
               : title === "桌面与维护"
                 ? APP_RUNTIME === "desktop" ? "可检查桌面更新和本机旧数据" : "网页端无需桌面维护"
+                : title === "授权中心" ? "GitHub Copilot 订阅账户"
                 : "设置确认偏好、问题处理和通知方式";
           return (
             <Card key={to} className="min-w-0">

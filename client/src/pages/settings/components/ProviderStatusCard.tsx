@@ -1,6 +1,7 @@
 import ModelCompatibilitySection from "./ModelCompatibilitySection";
 import { useState } from "react";
-import { Bot, ChevronDown, Image, RefreshCw, RotateCcw, Trash2, WalletCards, X } from "lucide-react";
+import { Bot, ChevronDown, Github, Image, RefreshCw, RotateCcw, Trash2, WalletCards, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import type { LLMProvider, ReasoningEffort } from "@ai-novel/shared/types/llm";
 import type { APIKeyStatus, ProviderBalanceStatus } from "@/api/settings";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ function getBalanceSummary(input: {
   isBalanceLoading: boolean;
 }) {
   const { provider, balance, isBalanceLoading } = input;
+  if (provider.connectionType === "copilot_subscription") return "使用 GitHub Copilot 订阅。";
   if (provider.kind === "custom") {
     return "自定义厂商暂不接入余额查询。";
   }
@@ -65,6 +67,8 @@ export default function ProviderStatusCard(props: {
     isRefreshingModels,
   } = props;
   const { provider, balance } = item;
+  const isSubscription = provider.connectionType === "copilot_subscription";
+  const canRefreshModels = isSubscription ? provider.authorizationState === "authorized" : provider.isConfigured;
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const imageModelLabel = provider.supportsImageGeneration
@@ -72,45 +76,48 @@ export default function ProviderStatusCard(props: {
     : "不支持图像生成";
   const visibleModels = modelsOpen ? provider.models : provider.models.slice(0, 8);
   const canUseProvider = provider.isConfigured && provider.isActive && Boolean(provider.currentModel);
-  const testDisabledReason = provider.isConfigured ? "" : "配置 API Key 后可以测试连接。";
-  const refreshDisabledReason = provider.isConfigured ? "" : "配置 API Key 后可以刷新模型列表。";
+  const testDisabledReason = provider.isConfigured ? "" : isSubscription ? "完成账户授权并选择模型后可测试连接。" : "配置 API Key 后可以测试连接。";
+  const refreshDisabledReason = canRefreshModels ? "" : isSubscription ? "请先在授权中心登录 GitHub Copilot。" : "配置 API Key 后可以刷新模型列表。";
 
   return (
     <div
       className={cn(
-        "min-w-0 rounded-xl border bg-card p-4 shadow-sm transition-all hover:shadow-md",
-        canUseProvider ? "border-primary/25 hover:border-primary/45" : "border-border",
+        "min-w-0 rounded-lg bg-card p-4",
       )}
     >
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div className={`font-semibold ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>{provider.name}</div>
-            {provider.kind === "custom" ? <Badge variant="outline">自定义</Badge> : null}
+            {provider.kind === "custom" ? <Badge variant="outline">{isSubscription ? "订阅账户" : "自定义"}</Badge> : null}
           </div>
           <div className={`text-xs text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
-            {canUseProvider ? "可用于创作任务。" : "完成配置后可用于创作任务。"}
+            {canUseProvider ? "可用于创作任务。" : isSubscription
+              ? provider.authorizationState === "authorized" ? "请刷新模型目录或选择默认模型。" : "请到授权中心完成 GitHub Copilot 授权。"
+              : "完成配置后可用于创作任务。"}
           </div>
         </div>
         <Badge
           variant={canUseProvider ? "default" : "outline"}
           className={canUseProvider ? "bg-emerald-600 text-white hover:bg-emerald-600" : ""}
         >
-          {canUseProvider ? "可用" : provider.isConfigured ? "已配置" : "未配置"}
+          {canUseProvider ? "可用" : isSubscription ? provider.authorizationState === "authorized" ? "需选模型" : "需授权" : provider.isConfigured ? "已配置" : "未配置"}
         </Badge>
       </div>
 
       <div className="mb-3 grid min-w-0 gap-2 text-sm md:grid-cols-2">
-        <div className="min-w-0 rounded-lg border bg-muted/25 p-3">
+        <div className="min-w-0 rounded-md bg-muted/25 p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Bot className="h-3.5 w-3.5" /> 文本模型</div>
           <div className={`mt-1 font-medium ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
             {provider.currentModel || "-"}
           </div>
         </div>
-        <div className="min-w-0 rounded-lg border bg-muted/25 p-3">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Image className="h-3.5 w-3.5" /> 图像模型</div>
+        <div className="min-w-0 rounded-md bg-muted/25 p-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {isSubscription ? <><Github className="h-3.5 w-3.5" />授权账户</> : <><Image className="h-3.5 w-3.5" />图像模型</>}
+          </div>
           <div className={`mt-1 font-medium ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
-            {imageModelLabel}
+            {isSubscription ? provider.authorizationLogin || "未登录" : imageModelLabel}
           </div>
         </div>
       </div>
@@ -125,7 +132,7 @@ export default function ProviderStatusCard(props: {
       </div>
 
       {item.testResult ? (
-        <div className={`mb-3 rounded-md border bg-background/70 p-3 text-sm text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
+        <div className={`mb-3 rounded-md bg-muted/25 p-3 text-sm text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
           {item.testResult}
         </div>
       ) : null}
@@ -143,6 +150,7 @@ export default function ProviderStatusCard(props: {
         >
           {item.isTesting ? "测试中..." : "测试连接"}
         </Button>
+        {isSubscription ? <Button asChild size="sm" variant="ghost"><Link to="/settings/authorization"><Github className="h-3.5 w-3.5" />管理授权</Link></Button> : null}
       </div>
 
       <ModelCompatibilitySection key={`${provider.provider}:${provider.currentModel}:${provider.currentBaseURL}`} provider={provider} />
@@ -167,7 +175,7 @@ export default function ProviderStatusCard(props: {
               variant="outline"
               title={refreshDisabledReason}
               onClick={() => onRefreshModels(provider.provider)}
-              disabled={!provider.isConfigured || isRefreshingModels}
+              disabled={!canRefreshModels || isRefreshingModels}
             >
               <RefreshCw className="h-3.5 w-3.5" /> {isRefreshingModels ? "刷新中..." : "刷新模型"}
             </Button>
@@ -192,14 +200,14 @@ export default function ProviderStatusCard(props: {
               <Trash2 className="h-3.5 w-3.5" /> {isRemoving ? "移除中..." : provider.kind === "builtin" ? "从列表移除" : "删除"}
             </Button>
           </div>
-          <div className={`text-xs text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
+          {!isSubscription ? <div className={`text-xs text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
             API 地址：{provider.currentBaseURL || "-"}
-          </div>
+          </div> : null}
           <ProviderRequestLimitSummary
             concurrencyLimit={provider.concurrencyLimit}
             requestIntervalMs={provider.requestIntervalMs}
           />
-          <div className="flex flex-col gap-3 bg-background/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          {!isSubscription ? <div className="flex flex-col gap-3 bg-background/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 space-y-1">
               <div className="text-xs font-medium text-muted-foreground">思考功能</div>
               <div className={`text-xs text-muted-foreground ${AUTO_DIRECTOR_MOBILE_CLASSES.wrapText}`}>
@@ -238,9 +246,9 @@ export default function ProviderStatusCard(props: {
               />
               </div>
             )}
-          </div>
+          </div> : null}
 
-          <div className="rounded-md border border-dashed bg-background/60 p-3">
+          {!isSubscription ? <div className="rounded-md bg-muted/20 p-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs font-medium text-muted-foreground">余额明细</div>
               {balance?.status === "available" ? (
@@ -264,7 +272,7 @@ export default function ProviderStatusCard(props: {
                 {balance?.error ?? balance?.message ?? (provider.isConfigured ? "当前暂未获取余额信息。" : "请先配置 API Key。")}
               </div>
             )}
-          </div>
+          </div> : null}
 
           <div className="space-y-2">
             <div className="flex min-w-0 flex-wrap gap-1">

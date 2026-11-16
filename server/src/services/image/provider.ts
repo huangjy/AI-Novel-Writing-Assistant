@@ -3,6 +3,7 @@ import path from "path";
 
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import { prisma } from "../../db/prisma";
+import { AppError } from "../../middleware/errorHandler";
 import { imageGenerationConfig } from "../../config/imageGeneration";
 import {
   getProviderDefaultBaseUrl,
@@ -61,6 +62,9 @@ async function resolveProviderSecret(provider: LLMProvider): Promise<ProviderSec
     const config = await prisma.aPIKey.findUnique({
       where: { provider },
     });
+    if (config?.connectionType === "copilot_subscription") {
+      throw new AppError("Copilot 订阅仅支持文本生成，请选择独立的图像模型厂商。", 400);
+    }
     if (config?.isActive) {
       savedApiKey = config.key?.trim() || undefined;
       savedBaseURL = config.baseURL?.trim() || undefined;

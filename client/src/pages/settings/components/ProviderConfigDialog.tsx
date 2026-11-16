@@ -1,7 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
-import { Bot, Image, KeyRound, Link2, SlidersHorizontal } from "lucide-react";
+import { Bot, Github, Image, KeyRound, Link2, SlidersHorizontal } from "lucide-react";
+import { Link } from "react-router-dom";
+import type { CopilotAccountSummary } from "@ai-novel/shared/types/authorization";
 import type { APIKeyStatus } from "@/api/settings";
-import type { ProviderAuthMode } from "@ai-novel/shared/types/llm";
+import type { ProviderAuthMode, ProviderConnectionType } from "@ai-novel/shared/types/llm";
 import SearchableSelect from "@/components/common/SearchableSelect";
 import { Button } from "@/components/ui/button";
 import { AppDialogContent, Dialog } from "@/components/ui/dialog";
@@ -9,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import ProviderRequestLimitFields from "./ProviderRequestLimitFields";
 
 export interface ProviderFormState {
+  connectionType: ProviderConnectionType;
   displayName: string;
   key: string;
   model: string;
@@ -25,6 +28,7 @@ interface ProviderConfigDialogProps {
   isCreatingCustomProvider: boolean;
   isCustomDialog: boolean;
   editingConfig?: APIKeyStatus;
+  copilotAccount?: CopilotAccountSummary;
   form: ProviderFormState;
   setForm: Dispatch<SetStateAction<ProviderFormState>>;
   selectableModels: string[];
@@ -49,6 +53,7 @@ export default function ProviderConfigDialog({
   isCreatingCustomProvider,
   isCustomDialog,
   editingConfig,
+  copilotAccount,
   form,
   setForm,
   selectableModels,
@@ -66,6 +71,7 @@ export default function ProviderConfigDialog({
   deleteDisabled,
   deleteLabel,
 }: ProviderConfigDialogProps) {
+  const isSubscription = form.connectionType === "copilot_subscription";
   const primaryModelLabel = isCreatingCustomProvider ? "默认模型（可选）" : isCustomDialog ? "默认模型" : "模型名称";
   const canSelectListedModels = selectableModels.length > 0;
   const imageModelOptions = editingConfig?.imageModels ?? [];
@@ -94,6 +100,7 @@ export default function ProviderConfigDialog({
               className="w-full sm:w-auto"
               onClick={onTest}
               disabled={testDisabled}
+              title={isSubscription && isCreatingCustomProvider ? "保存连接后可测试" : undefined}
             >
               测试连接
             </Button>
@@ -124,6 +131,37 @@ export default function ProviderConfigDialog({
             </div>
           ) : null}
 
+          {isCustomDialog ? (
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="provider-connection-type">连接来源</label>
+              <select id="provider-connection-type" value={form.connectionType}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                onChange={event => {
+                  const connectionType = event.target.value as ProviderConnectionType;
+                  setForm(previous => ({
+                    ...previous, connectionType, key: "", baseURL: "", imageModel: "",
+                    authMode: connectionType === "copilot_subscription" ? "none" : "bearer",
+                    model: connectionType === "copilot_subscription"
+                      ? copilotAccount?.models.find(model => model.transport)?.id ?? "" : "",
+                  }));
+                  onClearPreviewModels();
+                }}>
+                <option value="api_key">API Key / 自定义服务</option>
+                <option value="copilot_subscription">GitHub Copilot 订阅账户</option>
+              </select>
+            </div>
+          ) : null}
+          {isSubscription ? (
+            <div className="space-y-2 rounded-md bg-muted/40 p-3 text-sm">
+              <div className="flex items-center gap-2"><Github className="h-4 w-4" />{copilotAccount?.login || "未登录 GitHub"}</div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-muted-foreground">{copilotAccount?.state === "authorized" ? "使用授权中心账户" : "请先完成账户授权"}</span>
+                <Button asChild size="sm" variant="ghost"><Link to="/settings/authorization" onClick={() => onOpenChange(false)}>管理授权</Link></Button>
+              </div>
+            </div>
+          ) : null}
+
+          {!isSubscription ? <>
           {(isCustomDialog || editingConfig?.requiresApiKey === false) ? (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               API Key 可以留空；填写 API 地址后可获取模型列表，系统会选择一个默认模型。
@@ -208,12 +246,14 @@ export default function ProviderConfigDialog({
               ) : null}
             </div>
           ) : null}
+          </> : null}
 
           {canSelectListedModels ? (
             <div className="space-y-1">
               <div className="text-xs text-muted-foreground">可用模型</div>
               <SearchableSelect
                 value={form.model}
+                disabled={isSubscription && copilotAccount?.state !== "authorized"}
                 onValueChange={(value) => setForm((prev) => ({ ...prev, model: value }))}
                 options={selectableModels.map((model) => ({ value: model }))}
                 placeholder="选择模型"
@@ -223,17 +263,17 @@ export default function ProviderConfigDialog({
             </div>
           ) : null}
 
-          <div className="space-y-1">
+          {!isSubscription ? <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Bot className="h-3.5 w-3.5" /> {primaryModelLabel}</div>
-            <div className="text-xs text-muted-foreground">{modelGuidance}</div>
-          </div>
-          <Input
+            {!isSubscription ? <div className="text-xs text-muted-foreground">{modelGuidance}</div> : null}
+          </div> : null}
+          {!isSubscription ? <Input
             value={form.model}
             placeholder="也可以直接手动输入模型名"
             onChange={(event) => setForm((prev) => ({ ...prev, model: event.target.value }))}
-          />
+          /> : null}
 
-          <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+          {!isSubscription ? <div className="space-y-3 rounded-md bg-muted/20 p-4">
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Image className="h-3.5 w-3.5" /> 图像模型（可选）</div>
               <div className="text-xs text-muted-foreground">
@@ -260,9 +300,9 @@ export default function ProviderConfigDialog({
             <div className="text-xs text-muted-foreground">
               图片生成会调用这个厂商的 OpenAI 兼容图像接口。
             </div>
-          </div>
+          </div> : null}
 
-          <div className="rounded-xl border border-dashed bg-muted/10 p-4">
+          <div className="rounded-md bg-muted/10 p-4">
             <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><SlidersHorizontal className="h-3.5 w-3.5" /> 请求限制</div>
             <ProviderRequestLimitFields
               concurrencyLimit={form.concurrencyLimit}

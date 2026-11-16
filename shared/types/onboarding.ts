@@ -1,9 +1,10 @@
-import type { LLMProvider } from "./llm";
+import type { LLMProvider, ProviderConnectionType } from "./llm";
 import type { ModelRouteTaskType } from "./novel";
 import type { NovelWorkflowCheckpoint } from "./novelWorkflow";
 import type { TaskStatus } from "./task";
 
 export interface QuickSetupProviderOption {
+  connectionType?: ProviderConnectionType;
   id: LLMProvider;
   kind: "builtin" | "custom";
   name: string;

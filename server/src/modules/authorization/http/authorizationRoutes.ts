@@ -31,6 +31,12 @@ export function createAuthorizationRouter(service: AuthorizationService): Router
       res.json({ success: true, data: await service.summary() });
     } catch (error) { next(error); }
   });
+  router.post("/accounts/github-copilot/refresh-models", async (_req, res, next) => {
+    try {
+      await service.prepareProviders();
+      res.json({ success: true, data: await service.summary() });
+    } catch (error) { next(error); }
+  });
   router.use((error: unknown, _req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) => {
     if (!(error instanceof CopilotError)) { next(error); return; }
     res.status(error.statusCode).json({ success: false, code: error.code, error: error.message });

@@ -35,6 +35,7 @@ const PromptWorkbenchPage = lazy(() => import("@/pages/promptWorkbench/PromptWor
 const AntiAiRulesPage = lazy(() => import("@/pages/antiAiRules/AntiAiRulesPage"));
 const SettingsOverviewPage = lazy(() => import("@/pages/settings/views/SettingsOverviewPage"));
 const ModelsSettingsPage = lazy(() => import("@/pages/settings/views/ModelsSettingsPage"));
+const AuthorizationSettingsPage = lazy(() => import("@/pages/settings/authorization/AuthorizationSettingsPage"));
 const ModelRoutesSettingsPage = lazy(() => import("@/pages/settings/views/ModelRoutesSettingsPage"));
 const DirectorSettingsPage = lazy(() => import("@/pages/settings/views/DirectorSettingsPage"));
 const KnowledgeSettingsPage = lazy(() => import("@/pages/settings/views/KnowledgeSettingsPage"));
@@ -97,6 +98,7 @@ const routes: RouteObject[] = [
       { path: "anti-ai-rules", element: <AntiAiRulesPage /> },
       { path: "settings/model-routes", element: <ModelRoutesSettingsPage /> },
       { path: "settings/models", element: <ModelsSettingsPage /> },
+      { path: "settings/authorization", element: <AuthorizationSettingsPage /> },
       { path: "settings/director", element: <DirectorSettingsPage /> },
       { path: "settings/knowledge", element: <KnowledgeSettingsPage /> },
       { path: "settings/maintenance", element: <MaintenanceSettingsPage /> },

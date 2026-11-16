@@ -96,3 +96,19 @@ test("shared token refresh survives one waiter's cancellation and catalog failur
   assert.equal(f.store.record.state, "authorized");
   assert.equal(f.store.record.catalogState, "refresh_required");
 });
+
+test("cancellation cannot label a committed authorization as cancelled during provider provisioning", async t => {
+  const f = fixture(); t.after(() => f.service.close());
+  let release;
+  f.service.setAuthorizedHandler(() => new Promise(resolve => { release = resolve; }));
+  const session = await f.service.start("committing-request");
+  const operation = f.service.poll(session.id);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const snapshot = f.service.cancel(session.id);
+  assert.equal(snapshot.state, "pending");
+  assert.equal(snapshot.phase, "saving");
+  assert.equal(snapshot.userCode, undefined);
+  release(); await operation;
+  assert.equal(f.service.session(session.id).state, "succeeded");
+  assert.equal(f.store.record.state, "authorized");
+});
