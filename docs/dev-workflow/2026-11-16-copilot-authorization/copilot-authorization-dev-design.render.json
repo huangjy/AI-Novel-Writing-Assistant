@@ -1,0 +1,27 @@
+{
+  "generated_by": "dev-workflow/render_diagrams.py",
+  "html": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design.html",
+  "manifest": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design.render.json",
+  "mermaid_cli_version": "11.12.0",
+  "diagrams": [
+    {
+      "source": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design.mmd",
+      "sha256": "9c5c782dce938381d8f936740d2216860895ef6ac02925e3ab851f976f9cccc9",
+      "svg": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design-01.svg",
+      "png": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design-01.png"
+    },
+    {
+      "source": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-login-sequence.mmd",
+      "sha256": "1c5e2b21a92b39fe2371daf68025b7d7ed91ab2e1660a6c868a3fb4a6bae9889",
+      "svg": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design-02.svg",
+      "png": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-dev-design-02.png"
+    }
+  ],
+  "artifacts": {
+    "copilot-authorization-dev-design-01.svg": "ffa12030958c79ebe16e528a7696135b4bf8c935a345d4e7e5841d6b1a7ae6e9",
+    "copilot-authorization-dev-design-01.png": "989e14a68fa22fa23e96d50008745a59f0708adaebb411c8d3b29e6872cab580",
+    "copilot-authorization-dev-design-02.svg": "2e35963baf75d89c49c7e9b0db8a1e0f721120ecdfe2be76f563aada53aab198",
+    "copilot-authorization-dev-design-02.png": "1ee33012cd5ee532236d3cb0792b08643a7fa9598c7422933b138c17693d10b5",
+    "copilot-authorization-dev-design.html": "debfe2fcf4b3da02e4ddc7658120bc034b3195d644212ef90dae7652f2057051"
+  }
+}

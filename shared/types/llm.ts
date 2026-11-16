@@ -22,6 +22,8 @@ export type ReasoningEffort = typeof REASONING_EFFORTS[number];
 
 export const PROVIDER_AUTH_MODES = ["bearer", "x-api-key", "none"] as const;
 export type ProviderAuthMode = typeof PROVIDER_AUTH_MODES[number];
+export const PROVIDER_CONNECTION_TYPES = ["api_key", "copilot_subscription"] as const;
+export type ProviderConnectionType = typeof PROVIDER_CONNECTION_TYPES[number];
 
 export function isBuiltinLLMProvider(provider: string): provider is BuiltinLLMProvider {
   return (LLM_PROVIDERS as readonly string[]).includes(provider);

@@ -1,0 +1,37 @@
+flowchart TB
+  subgraph clients["桌面渲染器与 Web 浏览器"]
+    authui["授权中心"]
+    providerui["模型与厂商"]
+    workbench["创作工作台"]
+  end
+  subgraph server["同一个后端进程"]
+    management["管理 API 与现有访问鉴权"]
+    accounts["账户与登录应用服务"]
+    connections["provider 配置与就绪投影"]
+    llm["现有 LLM 工厂与执行装饰"]
+    proxy["进程内 OpenAI-compatible 传输"]
+    credentials["有效凭据与模型能力端口"]
+    vault["平台凭据密钥库"]
+    database[("SQLite 或 PostgreSQL")]
+    keyfile[("本地受限权限密钥文件")]
+  end
+  subgraph upstream["外部服务"]
+    github["GitHub 设备授权与账户 API"]
+    copilot["Copilot 令牌、模型与推理 API"]
+  end
+  authui <-->|"登录命令与安全状态"| management
+  providerui <-->|"连接配置与就绪状态"| management
+  management <-->|"会话与账户操作"| accounts
+  management <-->|"绑定与模型配置"| connections
+  accounts <-->|"首次配置端口"| connections
+  accounts <-->|"账户与凭据密文"| database
+  accounts <-->|"设备码与用户信息"| github
+  accounts -->|"加密与解密"| vault
+  vault -->|"读取或首次创建"| keyfile
+  connections <-->|"provider 与账户引用"| database
+  workbench <-->|"既有创作 API 与流式结果"| llm
+  llm <-->|"SDK 自定义 fetch；不经过网络监听"| proxy
+  proxy <-->|"有效令牌与已验证能力"| credentials
+  accounts -->|"实现并注入"| credentials
+  credentials <-->|"短期令牌与账户模型目录"| copilot
+  proxy <-->|"HTTPS 推理与流式响应"| copilot

@@ -1,0 +1,35 @@
+{
+  "generated_by": "dev-workflow/render_diagrams.py",
+  "html": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow.html",
+  "manifest": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow.render.json",
+  "mermaid_cli_version": "11.12.0",
+  "diagrams": [
+    {
+      "source": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow.mmd",
+      "sha256": "a9f5d9a1ce228ad212f16573cf1d49784df2d6fbaaa0760f06cfb28b1927a873",
+      "svg": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow-01.svg",
+      "png": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow-01.png"
+    },
+    {
+      "source": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-inference-tests.mmd",
+      "sha256": "1ed21fa2a6ae69d05d164f38f4670243b9d90f600c6e18775efc749e4199d429",
+      "svg": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow-02.svg",
+      "png": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow-02.png"
+    },
+    {
+      "source": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-lifecycle-tests.mmd",
+      "sha256": "93365da60b95227b2e70a4fe33a574d143e8a3460f8dbb7c9041132f7d862a96",
+      "svg": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow-03.svg",
+      "png": "/Users/huangjy/Desktop/GitHub/AI-Novel-Writing-Assistant/docs/dev-workflow/2026-11-16-copilot-authorization/copilot-authorization-test-workflow-03.png"
+    }
+  ],
+  "artifacts": {
+    "copilot-authorization-test-workflow-01.svg": "7c5c5f5c6fea7162a4b03643c5570862e6416dd6a09a24e0e50efaf31d175e34",
+    "copilot-authorization-test-workflow-01.png": "1aec2a7a9de5358e0e2101ed8bda9321344dd4ffe4749a1354bb23fe462f77ad",
+    "copilot-authorization-test-workflow-02.svg": "6fdf5fb4f6b38fbd51b062c3bb10b7e31278a81ecc134ad30798a43b5e90082d",
+    "copilot-authorization-test-workflow-02.png": "075e3c06fb565626b5e8803f821abd4fa92b285812c8f8579582ea6d410063ba",
+    "copilot-authorization-test-workflow-03.svg": "9768ccf90cb9342ce78bef4da78e203db434d0e5adf926c4964542f2fae6b9e5",
+    "copilot-authorization-test-workflow-03.png": "3e36267443e14b0f55318c79d9dc3bed112cecd33c2ea52bdd92e7e8713c4e9d",
+    "copilot-authorization-test-workflow.html": "e93707c882ad8195d2df2cff8862b7152b49b31f73503950294758aa183a26b9"
+  }
+}

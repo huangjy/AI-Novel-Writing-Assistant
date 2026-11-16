@@ -1919,6 +1919,9 @@ model APIKey {
   model     String?
   baseURL   String?
   authMode String @default("bearer")
+  connectionType String @default("api_key")
+  authorizationAccountId String?
+  authorizationAccount AuthorizationAccount? @relation(fields: [authorizationAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   isActive  Boolean  @default(true)
   reasoningEnabled Boolean @default(true)
   reasoningEffort String?
@@ -1930,6 +1933,23 @@ model APIKey {
   updatedAt DateTime @updatedAt
 
   @@unique([provider])
+  @@index([authorizationAccountId])
+}
+
+model AuthorizationAccount {
+  id String @id
+  service String @unique
+  githubUserId String?
+  login String?
+  state String @default("signed_out")
+  encryptedCredential String?
+  credentialRevision Int @default(0)
+  bootstrapCompleted Boolean @default(false)
+  catalogState String @default("refresh_required")
+  catalogJson String @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  providers APIKey[]
 }
 
 model AppSetting {

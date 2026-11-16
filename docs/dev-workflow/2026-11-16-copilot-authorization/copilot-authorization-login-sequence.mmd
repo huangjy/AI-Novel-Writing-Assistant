@@ -1,0 +1,30 @@
+sequenceDiagram
+  actor user as 用户
+  participant ui as 授权中心
+  participant api as 后端登录服务
+  participant gh as GitHub
+  participant cp as Copilot
+  participant db as 账户与配置存储
+  user->>ui: 点击登录
+  ui->>api: 创建设备登录会话
+  api->>gh: 请求设备码
+  gh-->>api: 设备码、用户码、间隔与有效期
+  api-->>ui: 会话 ID、验证链接、用户码与截止时间
+  user->>gh: 在浏览器确认授权
+  loop 按上游间隔轮询直到截止或取消
+    api->>gh: 后端使用设备码查询授权结果
+    gh-->>api: 等待、减速、拒绝、过期或 OAuth token
+  end
+  api->>cp: 验证订阅并换取短期令牌
+  cp-->>api: 短期令牌与有效期，或明确错误
+  alt 授权与订阅有效且账户身份符合约束
+    api->>db: 校验会话代次并提交加密凭据
+    api->>db: 首次配置幂等创建；保留原有选择
+    api->>cp: 获取账户实际可用模型与协议
+    cp-->>api: 目录与能力，或可恢复的目录错误
+    api->>db: 保存目录或待刷新状态
+    ui->>api: 查询会话和账户状态
+    api-->>ui: 已授权及 provider 就绪或待刷新状态
+  else 失败、取消或过期
+    api-->>ui: 安全错误或终止状态；不覆盖原有效账户
+  end

@@ -74,6 +74,7 @@ import { marketRadarService } from "./modules/marketRadar/application/MarketRada
 import { DirectorWorker } from "./workers/directorWorker";
 import { cleanupLogDirectory, resolveLogRetentionConfig } from "./platform/logging/logRetention";
 import { resolveLogsRoot } from "./runtime/appPaths";
+import { authorizationRouter, authorizationService } from "./app/authorization";
 
 getSharedNovelServices();
 registerNovelEventHandlers(novelEventBus);
@@ -228,6 +229,7 @@ export function createApp() {
   app.use("/api/settings/auto-director", settingsAutoDirectorRouter);
   app.use("/api/auto-director/channel-callbacks", autoDirectorChannelCallbacksRouter);
   app.use("/api/settings", settingsRouter);
+  app.use("/api/authorization", authorizationRouter);
   app.use("/api", onboardingRoutes);
   app.use("/api/astrology", astrologyRouter);
   if (parseEnvFlag(process.env.DIRECTOR_NEXT_ENABLED, true)) {
@@ -390,6 +392,7 @@ function initializeBackgroundServices(): BackgroundServicesHandle {
 
   return {
     stop: async () => {
+      authorizationService.close();
       feishuChannel.stop();
       stopPayloadRetention();
       stopManuscriptWorker();
