@@ -122,6 +122,8 @@ export class SubscriptionProxy {
           ? endpoint === "/chat/completions" || endpoint === "/v1/chat/completions"
           : endpoint === "/responses" || endpoint === "/v1/responses");
         if (!path) throw new SubscriptionError("COPILOT_MODEL_UNSUPPORTED", "模型没有可用的文本传输端点。");
+        // Copilot Responses rejects the sampling temperature supplied by the generic SDK.
+        const upstreamBody = model.transport === "responses" ? { ...body, temperature: undefined } : body;
         const response = await this.fetcher(`${upstreamOrigin(access.origin)}${path}`, {
           method: "POST", redirect: "error", signal: controller.signal,
           headers: {
@@ -129,7 +131,7 @@ export class SubscriptionProxy {
             Authorization: `Bearer ${access.token}`, "Content-Type": "application/json",
             Accept: body.stream ? "text/event-stream" : "application/json",
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(upstreamBody),
         });
         httpStatus = response.status;
         if (!response.ok) {

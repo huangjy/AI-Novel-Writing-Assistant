@@ -1,7 +1,7 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const { GitHubCopilotGateway, parseCopilotModels, validateCopilotOrigin } = require("../../dist/modules/authorization/infrastructure/GitHubCopilotGateway");
 const { CopilotCredentials } = require("../../dist/modules/authorization/application/CopilotCredentials");
-const { MemoryStore } = require("./fixtures.cjs");
+const { fixture, MemoryStore } = require("./fixtures.cjs");
 
 test("transport selection uses explicit endpoint capabilities, not model names", () => {
   const models = parseCopilotModels({ data: [
@@ -48,7 +48,7 @@ test("catalog refresh carries Copilot protocol identity through token exchange a
       && headers.get("editor-plugin-version") === "copilot-chat/0.38.2"
       && headers.get("copilot-integration-id") === "vscode-chat"
       && headers.get("user-agent") === "GitHubCopilotChat/0.38.2"
-      && headers.get("x-github-api-version") === "2025-10-01";
+      && headers.get("x-github-api-version") === (new URL(url).hostname === "api.github.com" ? "2022-11-28" : "2025-10-01");
     if (!identity) return new Response("sensitive-upstream-rejection", { status: 400 });
     if (url === "https://api.github.com/copilot_internal/v2/token") {
       assert.equal(headers.get("authorization"), "token oauth-secret-sentinel");
@@ -73,6 +73,32 @@ test("catalog refresh carries Copilot protocol identity through token exchange a
   assert.equal(JSON.parse(store.record.catalogJson)[0].transport, "chat");
   assert.equal(calls.length, 3);
   assert.equal(new Set(calls.map(call => call.headers.get("x-request-id"))).size, 3);
+});
+
+test("switching accounts validates GitHub identity with the REST API version, not the Copilot version", async t => {
+  const f = fixture();
+  t.after(() => f.service.close());
+  const first = await f.service.start("original-account");
+  await f.service.poll(first.id);
+  await f.service.logout(1);
+  const calls = [];
+  const gateway = new GitHubCopilotGateway(async (url, init) => {
+    const headers = new Headers(init.headers);
+    calls.push({ url, headers });
+    if (headers.get("x-github-api-version") !== "2022-11-28") {
+      return new Response("sensitive-version-error", { status: 400 });
+    }
+    return Response.json({ id: 456, login: "second-account" });
+  });
+  f.gateway.user = (token, signal) => gateway.user(token, signal);
+  const switched = await f.service.start("switched-account", true);
+  await f.service.poll(switched.id);
+  assert.equal(f.service.session(switched.id).state, "succeeded");
+  assert.equal(f.store.record.state, "authorized");
+  assert.equal(f.store.record.login, "second-account");
+  assert.equal(f.store.record.githubUserId, "456");
+  assert.equal(calls[0].url, "https://api.github.com/user");
+  assert.equal(calls[0].headers.get("authorization"), "token oauth-secret-sentinel");
 });
 
 test("gateway failure diagnostics keep only endpoint, HTTP status and safe error code", async t => {

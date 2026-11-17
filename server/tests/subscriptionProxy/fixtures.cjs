@@ -30,6 +30,7 @@ async function fixture(t, fetcher) {
   t.after(() => { proxy.close(); auth.service.close(); });
   const sdk = (provider = "provider-a", model = "chat-model") => new ChatOpenAI({
     model, apiKey: "sdk-placeholder-never-forward", maxRetries: 0,
+    temperature: 0.1, maxTokens: 16,
     useResponsesApi: model === "responses-model",
     configuration: { baseURL: SUBSCRIPTION_BASE_URL, fetch: proxy.fetchFor(provider, model) },
   });

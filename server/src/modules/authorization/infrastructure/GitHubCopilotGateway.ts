@@ -67,14 +67,14 @@ export function parseCopilotModels(payload: unknown): CopilotModel[] {
 export class GitHubCopilotGateway implements CopilotGateway {
   constructor(private readonly fetcher: typeof fetch = fetch) {}
 
-  private async json(url: string, init: RequestInit = {}): Promise<unknown> {
+  private async json(url: string, init: RequestInit = {}, target: "github" | "copilot" = "github"): Promise<unknown> {
     let httpStatus: number | undefined;
     try {
       const signal = init.signal
         ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000);
       const response = await this.fetcher(url, {
         ...init, signal, redirect: "error",
-        headers: { Accept: "application/json", ...createCopilotRequestHeaders(), ...init.headers },
+        headers: { Accept: "application/json", ...createCopilotRequestHeaders(target), ...init.headers },
       });
       httpStatus = response.status;
       if (response.status === 401) throw authorizationRequired();
@@ -153,6 +153,6 @@ export class GitHubCopilotGateway implements CopilotGateway {
   async models(access: CopilotAccess, signal?: AbortSignal) {
     return parseCopilotModels(await this.json(`${validateCopilotOrigin(access.origin)}/models`, {
       signal, headers: { Authorization: `Bearer ${access.token}` },
-    }));
+    }, "copilot"));
   }
 }

@@ -10,6 +10,7 @@ test("real Chat SDK uses the account credential and never forwards application a
   assert.equal(response.usage_metadata.total_tokens, 3);
   assert.equal(f.calls[0].url, "https://api.githubcopilot.com/chat/completions");
   assert.equal(f.calls[0].init.headers.Authorization, "Bearer copilot-secret-sentinel");
+  assert.equal(f.calls[0].body.temperature, 0.1, "Chat parameters must not be changed by Responses compatibility");
   assert.ok(!JSON.stringify(f.calls[0].init.headers).includes("sdk-placeholder"));
   const direct = await f.request(); await direct.text();
   assert.equal(f.calls[1].init.headers.Cookie, undefined);
@@ -37,12 +38,41 @@ test("real Responses SDK consumes native output and usage without a Chat bridge"
   assert.equal(response.text, "response-ok");
   assert.equal(response.usage_metadata.total_tokens, 3);
   assert.equal(f.calls[0].url, "https://api.githubcopilot.com/responses");
+  assert.equal(f.calls[0].body.temperature, undefined, "Copilot Responses rejects temperature");
+  assert.equal(f.calls[0].body.max_output_tokens, 16, "compatibility must preserve the requested output budget");
   const headers = new Headers(f.calls[0].init.headers);
   assert.equal(headers.get("copilot-integration-id"), "vscode-chat");
   assert.equal(headers.get("editor-version"), "vscode/1.110.1");
   assert.equal(headers.get("editor-plugin-version"), "copilot-chat/0.38.2");
   assert.equal(headers.get("user-agent"), "GitHubCopilotChat/0.38.2");
   assert.equal(headers.get("x-github-api-version"), "2025-10-01");
+});
+
+test("real Responses SDK streaming omits temperature and preserves text, tools and output format", async t => {
+  const f = await fixture(t, (_url, _init, body) => {
+    assert.equal(body.temperature, undefined);
+    assert.equal(body.max_output_tokens, 16);
+    assert.equal(body.text.format.type, "json_schema");
+    assert.equal(body.tools[0].name, "read_items");
+    return sse([
+      { type: "response.output_text.delta", item_id: "msg_fixture", output_index: 0, content_index: 0, delta: '{"status":"ok"}' },
+      { type: "response.completed", response: {
+        id: "resp_fixture", object: "response", created_at: 1, status: "completed", model: "responses-model",
+        output: [], usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+      } },
+    ]);
+  });
+  const llm = f.sdk("provider-a", "responses-model").bindTools([
+    { name: "read_items", description: "Read fixture", schema: z.object({ limit: z.number() }) },
+  ]);
+  let text = "";
+  for await (const chunk of await llm.stream("hello", {
+    response_format: { type: "json_schema", json_schema: {
+      name: "result", schema: { type: "object", properties: { status: { type: "string" } } },
+    } },
+  })) text += chunk.text;
+  assert.equal(text, '{"status":"ok"}');
+  assert.equal(f.calls.length, 1, "compatibility must not retry or replay generation");
 });
 
 test("SDK streaming merges fragmented tool arguments and structured output remains parseable", async t => {

@@ -7,6 +7,12 @@ SDK 使用 `fetchFor(provider, model)` 发送 OpenAI-compatible 请求，不挂�
 集成标识、User-Agent 和 API 版本。授权适配器与推理传输必须共用，不能只在模型目录补头：
 有效 Bearer token 不代表缺少这些协议头的请求会被 Copilot 接受。它们是上游协议合同，
 不是本产品版本；升级兼容身份时需同时验证目录、Chat 和 Responses，每次发送生成独立请求标识。
+GitHub OAuth/REST 请求显式使用 `github` 目标的 `2022-11-28` 版本，
+Copilot 模型目录和推理使用 `copilot` 目标的 `2025-10-01` 版本。
+不得把 Copilot 版本头直接复用于 GitHub `/user`，否则设备码已获批准也无法保存账户。
+
+Copilot Responses 在物理发送前省略通用 SDK 带入的 `temperature`，不按模型名称猜测兼容性。
+此适配不改变 Chat 参数、模型、输出预算、工具或结构化输出合同，也不通过收到 400 后重放请求来探测。
 
 平台通过 `SubscriptionPort` 获取有效凭据、模型能力和绑定校验，不依赖授权业务模块内部实现。
 `modules/authorization` 的组合入口提供端口实现。每次发送重新检查绑定和凭据代次；
