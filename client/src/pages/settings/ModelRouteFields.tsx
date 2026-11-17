@@ -105,7 +105,7 @@ export default function ModelRouteFields({
           placeholder={maxTokensPlaceholder}
           onChange={(event) => onPatch({ maxTokens: event.target.value })}
         />
-        <p className="text-xs text-muted-foreground">默认 {DEFAULT_MODEL_OUTPUT_TOKENS}，可自行调整。</p>
+        <p className="text-xs text-muted-foreground">留空时按模型输出上限，无法确认时使用 {DEFAULT_MODEL_OUTPUT_TOKENS}。</p>
       </div>
 
       {showProtocolFields ? (

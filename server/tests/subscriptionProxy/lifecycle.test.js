@@ -1,6 +1,6 @@
 const test = require("node:test"), assert = require("node:assert/strict");
-const { fixture, chatResponse } = require("./fixtures.cjs");
-const { SubscriptionError } = require("../../dist/platform/llm/subscription-proxy");
+const { fixture, chatResponse, sse } = require("./fixtures.cjs");
+const { SubscriptionError, terminalSubscriptionError } = require("../../dist/platform/llm/subscription-proxy");
 
 test("two providers share one permit; a queued cancellation never reaches upstream", async t => {
   let close;
@@ -25,6 +25,35 @@ test("rate limit cooldown is account-wide and produces no extra upstream attempt
   await assert.rejects(() => f.request("provider-a"), { code: "COPILOT_RATE_LIMITED" });
   await assert.rejects(() => f.request("provider-b"), { code: "COPILOT_RATE_LIMITED" });
   assert.equal(f.calls.length, 1);
+});
+
+test("Responses output exhaustion is typed, safely diagnosed and never replayed by the proxy", async t => {
+  const logs = [];
+  t.mock.method(console, "info", (...args) => logs.push(args.join(" ")));
+  let limited = true;
+  const f = await fixture(t, () => limited ? sse([
+    { type: "response.output_text.delta", item_id: "partial", output_index: 0, content_index: 0, delta: '{"value":"' },
+    { type: "response.incomplete", response: {
+      status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+      usage: { output_tokens: 16 }, private_detail: "sensitive-upstream-sentinel",
+    } },
+  ]) : chatResponse());
+  await assert.rejects(async () => {
+    for await (const _chunk of await f.sdk("provider-a", "responses-model").stream("hello")) {}
+  }, error => terminalSubscriptionError(error)?.code === "COPILOT_OUTPUT_LIMIT_REACHED"
+    && terminalSubscriptionError(error).message.includes("输出上限"));
+  assert.equal(f.calls.length, 1, "transport must not replay an exhausted generation");
+  const record = logs.filter(line => line.startsWith("[subscription.request] "))
+    .map(line => JSON.parse(line.slice("[subscription.request] ".length)))[0];
+  assert.equal(record.streamEvent, "response.incomplete");
+  assert.equal(record.finishReason, "max_output_tokens");
+  assert.equal(record.outputTokens, 16);
+  assert.equal(record.outputTokenLimit, 16);
+  assert.ok(!logs.join("\n").includes("sensitive-upstream-sentinel"));
+  limited = false;
+  const next = await f.request("provider-b");
+  await next.text();
+  assert.equal(f.calls.length, 2, "exhaustion must release the account permit");
 });
 
 test("logout aborts an in-flight response and rejects the same prebuilt client afterwards", async t => {

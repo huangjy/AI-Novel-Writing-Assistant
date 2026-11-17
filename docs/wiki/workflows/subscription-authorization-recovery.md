@@ -41,6 +41,7 @@ GitHub 登录、Copilot 订阅可用性、模型目录和创作任务不是同�
 | 简单检测成功但复杂解析返回 400 | 先核对该 Prompt 实际发送的 strict JSON Schema，特别是嵌套属性是否全部列入 required；合法空值使用显式 nullable。错误在生成前发生，不能以 JSON repair、刷新目录或静默替换模型掩盖合同缺陷。大纲导入示例见 [独立大纲工作台](../architecture/outline-workbench.md)。 |
 | 上游 429 | 共享有效 Retry-After 冷却；没有头则不虚构恢复时间，不由代理重复发送。 |
 | 流截断/取消/超时 | 不报完整成功，不重放已输出流，幂等释放账户许可。 |
+| HTTP 200 后因输出额度结束 | 检查 `streamEvent`、`finishReason`、`outputTokens` 和 `outputTokenLimit`。`response.incomplete/max_output_tokens` 是输出额度耗尽，不是网络故障；目录有可靠上限且任务未指定额度时应采用目录上限，仅在未知时回退 8192。不能接受半截 JSON 为成功，也不能自动重放。 |
 | 主密钥缺失或损坏 | 保留密文和配置，恢复原凭据目录或按明确账户操作重新授权；禁止自动覆盖主密钥。 |
 
 ## 相关模块

@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { prisma } = require("../dist/db/prisma");
 const {
   resolveLLMClientOptions,
+  createLLMFromResolvedOptions,
   setProviderSecretCache,
 } = require("../dist/llm/factory.js");
 
@@ -60,20 +61,20 @@ test("structured route maxTokens survives when task options omit maxTokens", asy
   }
 });
 
-test("structured defaults without explicit or route budget stay within the safety cap", async () => {
+test("structured requests use 8192 only when neither a request budget nor a model limit is known", async () => {
   configureProvider();
   const original = prisma.modelRouteConfig.findUnique;
   prisma.modelRouteConfig.findUnique = async () => null;
   try {
     const resolved = await resolveLLMClientOptions(PROVIDER, {
+      taskType: "planner",
       executionMode: "structured",
       structuredStrategy: "prompt_json",
     });
-    if (typeof resolved.maxTokens === "number") {
-      assert.ok(resolved.maxTokens <= 8192);
-    } else {
-      assert.equal(resolved.maxTokens, undefined);
-    }
+    assert.equal(resolved.maxTokens, 8192);
+    const body = JSON.parse(JSON.stringify(createLLMFromResolvedOptions(resolved).invocationParams({})));
+    assert.equal(body.max_tokens, 8192);
+    assert.equal(Object.hasOwn(body, "max_completion_tokens"), false);
   } finally {
     prisma.modelRouteConfig.findUnique = original;
     setProviderSecretCache(PROVIDER, null);

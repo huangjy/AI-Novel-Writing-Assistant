@@ -1,4 +1,5 @@
 import {applyCacheRequestPolicy,getPromptCacheBoundary,resolveCacheCapability} from "../platform/llm/cache";
+import { DEFAULT_MODEL_OUTPUT_TOKENS } from "@ai-novel/shared/types/llm";
 import { IterableReadableStream } from "@langchain/core/utils/stream";
 import {
   AIMessage,
@@ -176,7 +177,7 @@ export function createAnthropicLLM(options: AnthropicLLMOptions): {
         },
         body: JSON.stringify(applyCacheRequestPolicy({
           model: options.model,
-          max_tokens: options.maxTokens ?? 4096,
+          max_tokens: options.maxTokens ?? DEFAULT_MODEL_OUTPUT_TOKENS,
           temperature: options.temperature,
           stream,
           ...(converted.system ? { system: converted.system } : {}),

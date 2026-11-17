@@ -1,4 +1,4 @@
-import {DEFAULT_MODEL_OUTPUT_TOKENS, type LLMProvider} from "@ai-novel/shared/types/llm";
+import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import type {
   ModelRouteRequestProtocol,
   ModelRouteStructuredResponseFormat,
@@ -230,7 +230,7 @@ function applyOverrides(
   return {
     ...merged,
     ...routePreferences,
-    maxTokens: normalizeMaxTokens(merged.maxTokens) ?? DEFAULT_MODEL_OUTPUT_TOKENS,
+    maxTokens: normalizeMaxTokens(merged.maxTokens),
     routeKey: merged.routeKey,
     routeDegraded: merged.routeDegraded,
   };
@@ -321,7 +321,7 @@ export async function listModelRouteConfigs(): Promise<Array<{
         taskType: r.taskType,
         model: r.model,
         temperature: r.temperature,
-        maxTokens: normalizeMaxTokens(r.maxTokens ?? undefined) ?? DEFAULT_MODEL_OUTPUT_TOKENS,
+        maxTokens: normalizeMaxTokens(r.maxTokens ?? undefined) ?? null,
         ...routePreferences,
       };
     });

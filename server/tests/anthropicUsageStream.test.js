@@ -8,7 +8,10 @@ test('Anthropic stream preserves usage-only events and text order across UTF8 sp
     {type:'content_block_delta',delta:{type:'text_delta',text:'正文'}},
     {type:'message_delta',usage:{output_tokens:100}},{type:'message_stop'}];
   const bytes=new TextEncoder().encode(events.map(e=>'data: '+JSON.stringify(e)+'\r\n\r\n').join(''));
-  global.fetch=async()=>new Response(new ReadableStream({start(c){for(let i=0;i<bytes.length;i+=7)c.enqueue(bytes.slice(i,i+7));c.close();}}));
+  global.fetch=async(_url,init)=>{
+    assert.equal(JSON.parse(init.body).max_tokens,8192,"unknown native model limits use the shared fallback");
+    return new Response(new ReadableStream({start(c){for(let i=0;i<bytes.length;i+=7)c.enqueue(bytes.slice(i,i+7));c.close();}}));
+  };
   try {const llm=createAnthropicLLM({model:'fixture',baseURL:'https://fixture.invalid',temperature:0});
     let text='',usage=null;for await(const chunk of await llm.stream([new HumanMessage('写正文')])){text+=chunk.content;usage=mergeStreamTokenUsage(usage,extractLlmTokenUsage(chunk));}
     assert.equal(text,'正文');assert.equal(usage.promptTokens,1000);assert.equal(usage.totalTokens,1100);

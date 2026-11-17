@@ -322,7 +322,7 @@ export default function ModelRoutesPage() {
             providerOptions={providerOptions}
             onPatch={patchBulkDraft}
             temperaturePlaceholder="0.7"
-            maxTokensPlaceholder="留空则使用系统默认"
+            maxTokensPlaceholder="按模型上限"
             modelEmptyText="这个服务商没有可选模型"
             manualModelPlaceholder="也可以手动输入模型名"
             showProtocolFields={false}
@@ -428,7 +428,7 @@ export default function ModelRoutesPage() {
             providerOptions={providerOptions}
             onPatch={patchStructuredFallbackDraft}
             temperaturePlaceholder="0.2"
-            maxTokensPlaceholder="留空则使用系统默认"
+            maxTokensPlaceholder="按模型上限"
             modelEmptyText="这个服务商没有可选模型"
             manualModelPlaceholder="也可以手动输入模型名"
           />
@@ -502,7 +502,7 @@ export default function ModelRoutesPage() {
                 providerOptions={providerOptions}
                 onPatch={(patch) => patchDraft(taskType, patch)}
                 temperaturePlaceholder="0.7"
-                maxTokensPlaceholder="留空则使用系统默认"
+                maxTokensPlaceholder="按模型上限"
                 modelEmptyText="这个服务商没有可选模型"
                 manualModelPlaceholder="也可以手动输入模型名"
               />

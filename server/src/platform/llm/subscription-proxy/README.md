@@ -23,6 +23,9 @@ Copilot Responses 在物理发送前省略通用 SDK 带入的 `temperature`，�
 
 使用 LangChain 的 SSE 解析器检查 Chat 的 DONE 或 Responses completed 终态，
 SDK 继续负责正文、工具参数与 usage 的核心解析。截断和上游流错误不得冒充成功。
+Responses 的 `incomplete_details.reason=max_output_tokens` 映射为独立的
+`COPILOT_OUTPUT_LIMIT_REACHED`，与网络截断区分；安全日志只保留终态类型、允许的原因枚举、
+实际输出 Token 数和本次额度。错误不能触发代理重放或隐式换模型。
 错误仅包含安全类别与消息，原始响应体、认证头和网络异常详情不得传播到日志/业务层。
 
 调用用量仍由工厂已有装饰器记录，代理只补充 queue wait/transport/duration 诊断，

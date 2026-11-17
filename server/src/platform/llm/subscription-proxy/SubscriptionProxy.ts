@@ -91,6 +91,10 @@ export class SubscriptionProxy {
       let outcome = "failed";
       let errorCode: string | undefined;
       let httpStatus: number | undefined;
+      let streamEvent: string | undefined;
+      let finishReason: string | undefined;
+      let outputTokens: number | undefined;
+      const outputTokenLimit = typeof body.max_output_tokens === "number" ? body.max_output_tokens : undefined;
       const finish = async () => {
         if (finished) return;
         finished = true;
@@ -106,6 +110,7 @@ export class SubscriptionProxy {
           provider, model: expectedModel, outcome: controller.signal.aborted ? "cancelled" : outcome,
           code: errorCode ?? (reason instanceof SubscriptionError ? reason.code : undefined),
           httpStatus, transport: model.transport, queueWaitMs, durationMs: Date.now() - started,
+          streamEvent, finishReason, outputTokens, outputTokenLimit,
         }));
       };
       const onAbort = () => { void finish(); };
@@ -155,11 +160,26 @@ export class SubscriptionProxy {
         const parseEvents = getLines(getMessages(event => {
           if (event.data === "[DONE]" && model.transport === "chat") { terminal = true; return; }
           if (!event.data) return;
-          let value: { type?: string; error?: unknown; response?: { status?: string } };
+          let value: { type?: string; error?: unknown; response?: {
+            status?: string; incomplete_details?: { reason?: unknown } | null;
+            usage?: { output_tokens?: unknown } | null;
+          } };
           try { value = JSON.parse(event.data); } catch {
             throw new SubscriptionError("COPILOT_STREAM_INTERRUPTED", "Copilot 返回了无法读取的流式响应，请重试。", 502);
           }
-          if (value.error || value.type === "error" || value.type === "response.failed" || value.type === "response.incomplete") {
+          if (value.type === "response.incomplete" || (value.type === "response.completed" && value.response?.status === "incomplete")) {
+            streamEvent = value.type;
+            const reason = value.response?.incomplete_details?.reason;
+            finishReason = reason === "max_output_tokens" || reason === "content_filter" ? reason : "unknown";
+            const used = value.response?.usage?.output_tokens;
+            if (typeof used === "number" && Number.isSafeInteger(used) && used >= 0) outputTokens = used;
+            if (reason === "max_output_tokens") {
+              throw new SubscriptionError("COPILOT_OUTPUT_LIMIT_REACHED", "Copilot 达到本次输出上限，结果未完整返回；请分段处理或提高输出额度后重试。", 422);
+            }
+            throw new SubscriptionError("COPILOT_STREAM_INTERRUPTED", "Copilot 生成中断，请检查模型状态后重试。", 502);
+          }
+          if (value.error || value.type === "error" || value.type === "response.failed") {
+            streamEvent = value.type === "error" || value.type === "response.failed" ? value.type : undefined;
             throw new SubscriptionError("COPILOT_STREAM_INTERRUPTED", "Copilot 生成中断，请检查模型状态后重试。", 502);
           }
           if (value.type === "response.completed" && value.response?.status === "completed") terminal = true;
