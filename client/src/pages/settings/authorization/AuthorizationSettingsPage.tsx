@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpRight, CheckCircle2, Copy, Github, LoaderCircle, LogIn, LogOut, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, ArrowUpRight, CheckCircle2, Copy, Github, LoaderCircle, LogIn, LogOut, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   cancelAuthorizationSession, getAuthorizationSession, logoutCopilot, refreshCopilotModels, startCopilotLogin,
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsShell } from "../components/SettingsShell";
 import { APP_RUNTIME } from "@/lib/constants";
 import { openCopilotLoginInBrowser } from "@/lib/desktop";
-import { ACCOUNT_STATE_LABELS } from "./authorizationPolicy";
+import { ACCOUNT_STATE_LABELS, canSwitchCopilotAccount } from "./authorizationPolicy";
 import { refreshAuthorizationProjections, useCopilotAccount } from "./useCopilotAccount";
 
 export default function AuthorizationSettingsPage() {
@@ -18,7 +18,6 @@ export default function AuthorizationSettingsPage() {
   const accountQuery = useCopilotAccount();
   const account = accountQuery.data?.data;
   const [lastSessionId, setLastSessionId] = useState("");
-  const [replaceAccount, setReplaceAccount] = useState(false);
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(Date.now);
   const sessionId = lastSessionId || account?.activeSession?.id || "";
@@ -40,7 +39,7 @@ export default function AuthorizationSettingsPage() {
   }, [client, session?.state, session?.id]);
 
   const login = useMutation({
-    mutationFn: () => startCopilotLogin(replaceAccount),
+    mutationFn: (replaceAccount: boolean) => startCopilotLogin(replaceAccount),
     onSuccess: async response => {
       if (response.data) setLastSessionId(response.data.id);
       setNotice("");
@@ -50,7 +49,7 @@ export default function AuthorizationSettingsPage() {
   const logout = useMutation({
     mutationFn: () => logoutCopilot(account?.credentialRevision ?? 0),
     onSuccess: async () => {
-      setLastSessionId(""); setReplaceAccount(false); setNotice("已退出 GitHub Copilot，关联厂商配置和创作结果均保留。");
+      setLastSessionId(""); setNotice("已退出 GitHub Copilot，关联厂商配置和创作结果均保留。");
       await refreshAuthorizationProjections(client);
     },
   });
@@ -68,10 +67,13 @@ export default function AuthorizationSettingsPage() {
   const error = accountQuery.error ?? sessionQuery.error ?? login.error ?? logout.error ?? cancel.error ?? refresh.error;
   const busy = login.isPending || logout.isPending || cancel.isPending || refresh.isPending;
   const authorized = account?.state === "authorized";
+  const canSwitchAccount = canSwitchCopilotAccount(account);
   const seconds = session ? Math.max(0, Math.ceil((session.expiresAt - now) / 1000)) : 0;
-  const startLogin = () => {
-    if (replaceAccount && !window.confirm(`将 ${account?.bindings.length ?? 0} 个关联厂商接到另一个 GitHub 账户？`)) return;
-    login.mutate();
+  const startLogin = (replaceAccount: boolean) => {
+    if (replaceAccount && (!canSwitchAccount || !window.confirm(
+      `将 ${account?.bindings.length ?? 0} 个关联厂商绑定到新 GitHub 账户？厂商配置和创作结果会保留。`,
+    ))) return;
+    login.mutate(replaceAccount);
   };
 
   return (
@@ -122,10 +124,15 @@ export default function AuthorizationSettingsPage() {
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            <Button disabled={busy || accountQuery.isPending || accountQuery.isError} onClick={startLogin}>
+            <Button disabled={busy || accountQuery.isPending || accountQuery.isError} onClick={() => startLogin(false)}>
               {login.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-              {login.isPending ? "获取登录码..." : authorized || account?.state === "reauthorization_required" ? "重新授权" : "登录 GitHub"}
+              {login.isPending ? "获取登录码..." : authorized || account?.state === "reauthorization_required" ? "重新授权" : canSwitchAccount ? "登录原账户" : "登录 GitHub"}
             </Button>
+            {canSwitchAccount ? (
+              <Button variant="secondary" disabled={busy || accountQuery.isPending || accountQuery.isError} onClick={() => startLogin(true)}>
+                <ArrowRightLeft className="h-4 w-4" />切换 GitHub 账户
+              </Button>
+            ) : null}
             {account && account.state !== "signed_out" ? (
               <Button variant="secondary" disabled={busy} onClick={() => {
                 if (window.confirm(`退出 GitHub Copilot？${account.bindings.length} 个关联厂商需重新授权，配置和创作结果会保留。`)) logout.mutate();
@@ -134,12 +141,6 @@ export default function AuthorizationSettingsPage() {
           </div>
         )}
 
-        {account?.state === "signed_out" && account.login && !pending ? (
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={replaceAccount} onChange={event => setReplaceAccount(event.target.checked)} />
-            使用其他 GitHub 账户，并重新关联全部厂商
-          </label>
-        ) : null}
         {(error || session?.error) ? <p role="alert" className="text-sm text-destructive">{error instanceof Error ? error.message : session?.error}</p> : null}
         {notice ? <p role="status" className="text-sm text-muted-foreground">{notice}</p> : null}
         {accountQuery.isError ? <Button variant="ghost" onClick={() => void accountQuery.refetch()}><RefreshCw className="h-4 w-4" />重试读取</Button> : null}

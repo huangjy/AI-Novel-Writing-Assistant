@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectionPayload, showProvider, subscriptionModelOptions } from "../src/pages/settings/authorization/authorizationPolicy.ts";
+import { canSwitchCopilotAccount, connectionPayload, showProvider, subscriptionModelOptions } from "../src/pages/settings/authorization/authorizationPolicy.ts";
+
+test("account switching is available only after signing out of a remembered account", () => {
+  assert.equal(canSwitchCopilotAccount({ state: "signed_out", login: "old-account" }), true);
+  assert.equal(canSwitchCopilotAccount({ state: "signed_out", login: null }), false);
+  assert.equal(canSwitchCopilotAccount(), false);
+  for (const state of ["authorized", "reauthorization_required", "subscription_unavailable", "credential_unavailable"]) {
+    assert.equal(canSwitchCopilotAccount({ state, login: "old-account" }), false);
+  }
+});
 
 test("subscription payloads omit copied keys, URLs and image model settings", () => {
   const form = { key: "private-old-key", baseURL: "https://old.example/v1", imageModel: "old-image", model: "selected" };

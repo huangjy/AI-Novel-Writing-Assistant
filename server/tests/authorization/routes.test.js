@@ -39,6 +39,16 @@ test("authorization management inherits app protection and never provides a publ
   const refresh = await fetch(`${base}/accounts/github-copilot/refresh-models`, { method: "POST", headers, body: "{}" });
   assert.equal(refresh.status, 200);
   assert.equal(explicitRefreshes, 1);
+  await f.service.logout(1);
+  f.gateway.userId = "456";
+  const switched = await fetch(`${base}/accounts/github-copilot/login-sessions`, {
+    method: "POST", headers, body: JSON.stringify({ idempotencyKey: "confirmed-account-switch", replaceAccount: true }),
+  });
+  assert.equal(switched.status, 200);
+  const switchSession = (await switched.json()).data;
+  await f.service.poll(switchSession.id);
+  assert.equal(f.service.session(switchSession.id).state, "succeeded");
+  assert.equal(f.store.record.githubUserId, "456", "HTTP must forward the explicit switch confirmation");
   const absent = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers, body: "{}" });
   assert.equal(absent.status, 404);
 });

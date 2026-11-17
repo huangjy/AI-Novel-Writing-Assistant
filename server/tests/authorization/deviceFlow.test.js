@@ -58,6 +58,49 @@ test("denial, failed subscription and a different identity preserve existing aut
   assert.deepEqual(f.store.record, original);
 });
 
+test("signed-out account conflicts point to switching and explicit confirmation permits replacement", async t => {
+  const f = fixture(); t.after(() => f.service.close());
+  const first = await f.service.start("original-account"); await f.service.poll(first.id);
+  await f.service.logout(1);
+  const signedOut = structuredClone(f.store.record);
+  f.gateway.userId = "456";
+  const ordinary = await f.service.start("ordinary-login");
+  await f.service.poll(ordinary.id);
+  const failure = f.service.session(ordinary.id);
+  assert.equal(failure.code, "COPILOT_ACCOUNT_CONFLICT");
+  assert.match(failure.error, /切换 GitHub 账户/);
+  assert.ok(!failure.error.includes("先退出"), "an already signed-out account must not be told to sign out again");
+  assert.deepEqual(f.store.record, signedOut, "ordinary login must not silently replace the remembered identity");
+  const replacement = await f.service.start("confirmed-switch", true);
+  await f.service.poll(replacement.id);
+  assert.equal(f.service.session(replacement.id).state, "succeeded");
+  assert.equal(f.store.record.githubUserId, "456");
+  assert.equal(f.store.record.state, "authorized");
+});
+
+test("pending logins cannot silently reuse a different account-switch confirmation", async t => {
+  const f = fixture(); t.after(() => f.service.close());
+  const session = await f.service.start("ordinary-login");
+  await assert.rejects(() => f.service.start("confirmed-switch", true), { code: "COPILOT_LOGIN_MODE_CONFLICT" });
+  assert.equal(f.counters.device, 1);
+  assert.equal(f.service.session(session.id).state, "pending");
+  assert.equal((await f.service.start("same-mode-login")).id, session.id);
+});
+
+test("concurrent device-code creation preserves the initiating login mode", async t => {
+  const f = fixture(); t.after(() => f.service.close());
+  const startDevice = f.gateway.startDevice.bind(f.gateway);
+  let release;
+  f.gateway.startDevice = () => new Promise(resolve => { release = async () => resolve(await startDevice()); });
+  const ordinary = f.service.start("ordinary-login");
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const rejected = assert.rejects(f.service.start("confirmed-switch", true), { code: "COPILOT_LOGIN_MODE_CONFLICT" });
+  await release();
+  await rejected;
+  assert.equal((await ordinary).state, "pending");
+  assert.equal(f.counters.device, 1);
+});
+
 test("logout rejects stale versions and fences late login callbacks", async t => {
   const f = fixture(); t.after(() => f.service.close());
   const first = await f.service.start("first-request"); await f.service.poll(first.id);

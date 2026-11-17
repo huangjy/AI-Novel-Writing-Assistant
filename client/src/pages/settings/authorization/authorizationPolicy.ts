@@ -6,6 +6,10 @@ export const ACCOUNT_STATE_LABELS: Record<CopilotAccountState, string> = {
   subscription_unavailable: "订阅不可用", credential_unavailable: "授权密钥不可用",
 };
 
+export function canSwitchCopilotAccount(account?: Pick<CopilotAccountSummary, "state" | "login">): boolean {
+  return account?.state === "signed_out" && Boolean(account.login);
+}
+
 export function subscriptionModelOptions(account?: CopilotAccountSummary, hidden: string[] = [], current = ""): string[] {
   return (account?.models ?? []).filter(model => model.transport && (!hidden.includes(model.id) || model.id === current)).map(model => model.id);
 }

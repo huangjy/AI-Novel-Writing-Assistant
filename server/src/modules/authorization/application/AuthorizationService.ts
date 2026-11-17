@@ -25,7 +25,7 @@ const schedule: Scheduler = (operation, delayMs) => {
 
 export class AuthorizationService {
   private readonly sessions = new Map<string, LoginSession>();
-  private starting: Promise<AuthorizationSession> | null = null;
+  private starting: { replaceAccount: boolean; promise: Promise<AuthorizationSession> } | null = null;
   private onAuthorized: () => Promise<void> = async () => {};
 
   constructor(
@@ -61,11 +61,15 @@ export class AuthorizationService {
 
   async start(key: string, replaceAccount = false): Promise<AuthorizationSession> {
     const existing = [...this.sessions.values()].find(session => session.key === key || session.public.state === "pending");
+    const active = existing ?? this.starting;
+    if (active && active.replaceAccount !== replaceAccount) {
+      throw new CopilotError("COPILOT_LOGIN_MODE_CONFLICT", "请先取消进行中的登录，再选择登录原账户或切换 GitHub 账户。", 409);
+    }
     if (existing) return this.snapshot(existing);
-    if (this.starting) return this.starting;
-    const operation = this.create(key, replaceAccount);
+    if (this.starting) return this.starting.promise;
+    const operation = { replaceAccount, promise: this.create(key, replaceAccount) };
     this.starting = operation;
-    try { return await operation; } finally { this.starting = null; }
+    try { return await operation.promise; } finally { this.starting = null; }
   }
 
   private async create(key: string, replaceAccount: boolean): Promise<AuthorizationSession> {
@@ -147,7 +151,9 @@ export class AuthorizationService {
       signal.throwIfAborted();
       if (!account || account.credentialRevision !== session.revision) throw revisionConflict();
       if (account.githubUserId && account.githubUserId !== user.id && !session.replaceAccount) {
-        throw new CopilotError("COPILOT_ACCOUNT_CONFLICT", "请先退出账户，并确认将所有关联厂商接到另一个 GitHub 账户。", 409);
+        throw new CopilotError("COPILOT_ACCOUNT_CONFLICT", account.state === "signed_out"
+          ? "请点击“切换 GitHub 账户”，确认关联厂商后重新授权。"
+          : "请先退出当前账户，再点击“切换 GitHub 账户”并确认关联厂商。", 409);
       }
       let encryptedCredential: string;
       try { encryptedCredential = this.vault.seal(result.token, account.id, !account.encryptedCredential); }
