@@ -16,7 +16,7 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
   { key: "outline.initial_generate@v1", load: () => require("../prompts/outline/outline.prompts").outlineInitialGeneratePrompt as UnknownPromptAsset },
   { key: "outline.edit_proposal@v2", load: () => require("../prompts/outline/outline.prompts").outlineEditProposalPrompt as UnknownPromptAsset },
   { key: "outline.text_feedback@v1", load: () => require("../prompts/outline/feedback.prompts").outlineFeedbackPrompt as UnknownPromptAsset },
-  { key: "outline.import_parse@v1", load: () => require("../prompts/outline/outline.prompts").outlineImportParsePrompt as UnknownPromptAsset },
+  { key: "outline.import_parse@v2", load: () => require("../prompts/outline/outline.prompts").outlineImportParsePrompt as UnknownPromptAsset },
   {
     key: "novel.character.initial_schedule@v1",
     load: () => require("../prompts/novel/characterInitialSchedule.prompts").characterInitialSchedulePrompt as UnknownPromptAsset,

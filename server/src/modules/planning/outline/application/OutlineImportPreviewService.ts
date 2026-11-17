@@ -12,7 +12,7 @@ interface ImportNode {
   summary: string;
   planningDepth: "rough" | "detailed";
   nodeType: "volume" | "chapter" | "character" | "payoff" | "fact";
-  parentRef?: string;
+  parentRef: string | null;
   sourceFragment: string;
 }
 

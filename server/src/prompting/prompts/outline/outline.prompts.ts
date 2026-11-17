@@ -67,7 +67,7 @@ const editSchema = z.object({ operations: z.array(operationSchema).min(1) }).sup
     }
   });
 });
-const importSchema = z.object({ nodes: z.array(nodeSchema.extend({ nodeType: z.enum(["volume", "chapter", "character", "payoff", "fact"]), parentRef: z.string().optional(), sourceFragment: z.string() })), unclassifiedFragments: z.array(z.string()), coverageNotes: z.array(z.string()) });
+const importSchema = z.object({ nodes: z.array(nodeSchema.extend({ nodeType: z.enum(["volume", "chapter", "character", "payoff", "fact"]), parentRef: z.string().nullable(), sourceFragment: z.string() })), unclassifiedFragments: z.array(z.string()), coverageNotes: z.array(z.string()) });
 
 export const outlineInitialGeneratePrompt: PromptAsset<{ idea: string; genre?: string; audience?: string; rough: boolean }, z.infer<typeof initialSchema>> = {
   id: "outline.initial_generate", version: "v1", taskType: "planner", mode: "structured", language: "zh", contextPolicy: { maxTokensBudget: 8000 }, outputSchema: initialSchema,
@@ -85,6 +85,6 @@ export const outlineEditProposalPrompt: PromptAsset<{ request: string; baseVersi
   ].join("")), new HumanMessage(JSON.stringify(input))],
 };
 export const outlineImportParsePrompt: PromptAsset<{ text: string; format: "markdown" | "text"; chunkIndex: number; chunkCount: number }, z.infer<typeof importSchema>> = {
-  id: "outline.import_parse", version: "v1", taskType: "planner", mode: "structured", language: "zh", contextPolicy: { maxTokensBudget: 8000 }, outputSchema: importSchema,
-  render: input => [new SystemMessage("将用户提供的文本片段理解为待确认的大纲节点，不要补造缺失内容。逐段覆盖输入；无法分类的原文放入 unclassifiedFragments。标题格式仅作为线索，不得据此静默丢弃文本。若 Markdown 顶部一级标题是书名，它是大纲标题，不要把书名识别为空卷；只有真正的卷标题才输出 volume。人物、伏笔、固定设定等分类标题不是节点；其下每个人物、伏笔、设定分别输出独立节点，人物的 title 是姓名，不要将多个人物合并为名叫“人物”的节点。"), new HumanMessage(JSON.stringify(input))],
+  id: "outline.import_parse", version: "v2", taskType: "planner", mode: "structured", language: "zh", contextPolicy: { maxTokensBudget: 8000 }, outputSchema: importSchema,
+  render: input => [new SystemMessage("将用户提供的文本片段理解为待确认的大纲节点，不要补造缺失内容。逐段覆盖输入；无法分类的原文放入 unclassifiedFragments。标题格式仅作为线索，不得据此静默丢弃文本。若 Markdown 顶部一级标题是书名，它是大纲标题，不要把书名识别为空卷；只有真正的卷标题才输出 volume。每个节点必须返回 parentRef；章节填写所属卷的 clientRef，卷、人物、伏笔、固定设定等没有父级的节点填写 null，不得省略字段或编造父级。人物、伏笔、固定设定等分类标题不是节点；其下每个人物、伏笔、设定分别输出独立节点，人物的 title 是姓名，不要将多个人物合并为名叫“人物”的节点。"), new HumanMessage(JSON.stringify(input))],
 };

@@ -64,13 +64,17 @@ test('import preview binds verifiable source ranges to node IDs and merges overl
   const sourceText = `${volumeFragment}\n未分类`;
   const output = {
     nodes: [
-      { clientRef: 'volume-1', nodeType: 'volume', title: '第一卷', summary: '启程', planningDepth: 'rough', sourceFragment: volumeFragment },
+      { clientRef: 'volume-1', nodeType: 'volume', parentRef: null, title: '第一卷', summary: '启程', planningDepth: 'rough', sourceFragment: volumeFragment },
       { clientRef: 'chapter-1', nodeType: 'chapter', parentRef: 'volume-1', title: '第一章', summary: '主角出发', planningDepth: 'detailed', sourceFragment: chapterFragment },
       { clientRef: 'fact-1', nodeType: 'fact', title: '无依据设定', summary: '需要人工核对', planningDepth: 'rough', sourceFragment: '原文不存在的片段' },
     ],
     unclassifiedFragments: ['未分类'],
   };
-  t.mock.method(promptRunner, 'runStructuredPrompt', async () => ({ output }));
+  t.mock.method(promptRunner, 'runStructuredPrompt', async ({ asset }) => {
+    assert.equal(asset.id, 'outline.import_parse');
+    assert.equal(asset.version, 'v2');
+    return { output };
+  });
 
   const preview = await new OutlineImportPreviewService({}).preview('user-1', '导入测试', sourceText, 'markdown');
 

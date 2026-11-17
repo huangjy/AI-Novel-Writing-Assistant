@@ -2,6 +2,9 @@ const test = require("node:test"), assert = require("node:assert/strict");
 const { z } = require("zod");
 const { fixture, sse, models } = require("./fixtures.cjs");
 const { terminalSubscriptionError } = require("../../dist/platform/llm/subscription-proxy");
+const { buildStructuredCallOptions } = require("../../dist/llm/structuredOutput");
+const { preparePromptExecution } = require("../../dist/prompting/core/promptRunner");
+const { outlineImportParsePrompt } = require("../../dist/prompting/prompts/outline/outline.prompts");
 
 test("real Chat SDK uses the account credential and never forwards application authorization or cookies", async t => {
   const f = await fixture(t);
@@ -73,6 +76,39 @@ test("real Responses SDK streaming omits temperature and preserves text, tools a
   })) text += chunk.text;
   assert.equal(text, '{"status":"ok"}');
   assert.equal(f.calls.length, 1, "compatibility must not retry or replay generation");
+});
+
+test("registered outline import schema reaches the Responses SDK with nullable parents and validates its streamed result", async t => {
+  const output = { nodes: [
+    { clientRef: "v1", nodeType: "volume", parentRef: null, title: "第一卷", summary: "启程",
+      planningDepth: "rough", reason: "原文卷标题", sourceFragment: "第一卷" },
+    { clientRef: "c1", nodeType: "chapter", parentRef: "v1", title: "第一章", summary: "出发",
+      planningDepth: "rough", reason: "原文章节", sourceFragment: "第一章\n出发" },
+  ], unclassifiedFragments: [], coverageNotes: [] };
+  const f = await fixture(t, (_url, _init, body) => {
+    assert.equal(body.text.format.strict, true);
+    const node = body.text.format.schema.properties.nodes.items;
+    assert.deepEqual([...node.required].sort(), Object.keys(node.properties).sort());
+    assert.ok(node.properties.parentRef.anyOf.some(branch => branch.type === "null"));
+    return sse([
+      { type: "response.output_text.delta", item_id: "outline_result", output_index: 0, content_index: 0, delta: JSON.stringify(output) },
+      { type: "response.completed", response: {
+        id: "outline_response", object: "response", created_at: 1, status: "completed", model: "responses-model",
+        output: [], usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+      } },
+    ]);
+  });
+  const prepared = preparePromptExecution({
+    asset: outlineImportParsePrompt,
+    promptInput: { text: "第一卷\n第一章\n出发", format: "text", chunkIndex: 1, chunkCount: 1 },
+  });
+  const callOptions = buildStructuredCallOptions({
+    strategy: "json_schema", schema: outlineImportParsePrompt.outputSchema, label: "outline.import_parse@v2",
+  });
+  let text = "";
+  for await (const chunk of await f.sdk("provider-a", "responses-model").stream(prepared.messages, callOptions)) text += chunk.text;
+  assert.deepEqual(outlineImportParsePrompt.outputSchema.parse(JSON.parse(text)), output);
+  assert.equal(f.calls.length, 1, "schema compatibility must not switch models or replay requests");
 });
 
 test("SDK streaming merges fragmented tool arguments and structured output remains parseable", async t => {
