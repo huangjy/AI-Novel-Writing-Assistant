@@ -1,5 +1,7 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const { GitHubCopilotGateway, parseCopilotModels, validateCopilotOrigin } = require("../../dist/modules/authorization/infrastructure/GitHubCopilotGateway");
+const { CopilotCredentials } = require("../../dist/modules/authorization/application/CopilotCredentials");
+const { MemoryStore } = require("./fixtures.cjs");
 
 test("transport selection uses explicit endpoint capabilities, not model names", () => {
   const models = parseCopilotModels({ data: [
@@ -35,4 +37,54 @@ test("gateway pins device and token endpoints, refuses redirects and never expos
   assert.equal(calls[0].url, "https://github.com/login/device/code");
   assert.equal(calls[0].init.redirect, "error");
   assert.equal(calls[0].init.body.get("scope"), "read:user");
+});
+
+test("catalog refresh carries Copilot protocol identity through token exchange and saves a ready catalog", async () => {
+  const calls = [];
+  const gateway = new GitHubCopilotGateway(async (url, init) => {
+    const headers = new Headers(init.headers);
+    calls.push({ url, headers });
+    const identity = headers.get("editor-version") === "vscode/1.110.1"
+      && headers.get("editor-plugin-version") === "copilot-chat/0.38.2"
+      && headers.get("copilot-integration-id") === "vscode-chat"
+      && headers.get("user-agent") === "GitHubCopilotChat/0.38.2"
+      && headers.get("x-github-api-version") === "2025-10-01";
+    if (!identity) return new Response("sensitive-upstream-rejection", { status: 400 });
+    if (url === "https://api.github.com/copilot_internal/v2/token") {
+      assert.equal(headers.get("authorization"), "token oauth-secret-sentinel");
+      return Response.json({ token: "copilot-secret-sentinel", expires_at: Math.floor(Date.now() / 1000) + 3600 });
+    }
+    if (url === "https://api.github.com/copilot_internal/user") {
+      assert.equal(headers.get("authorization"), "token oauth-secret-sentinel");
+      return Response.json({ endpoints: { api: "https://api.individual.githubcopilot.com" } });
+    }
+    assert.equal(url, "https://api.individual.githubcopilot.com/models");
+    assert.equal(headers.get("authorization"), "Bearer copilot-secret-sentinel");
+    return Response.json({ data: [{ id: "catalog-model", supported_endpoints: ["/chat/completions"] }] });
+  });
+  const store = new MemoryStore();
+  await store.initialize();
+  await store.update(0, { state: "authorized", encryptedCredential: "encrypted-sentinel" });
+  const credentials = new CopilotCredentials(store, { open: () => "oauth-secret-sentinel" }, gateway);
+  const models = await credentials.refreshModels();
+  assert.equal(models[0].id, "catalog-model");
+  assert.equal(store.record.state, "authorized");
+  assert.equal(store.record.catalogState, "ready");
+  assert.equal(JSON.parse(store.record.catalogJson)[0].transport, "chat");
+  assert.equal(calls.length, 3);
+  assert.equal(new Set(calls.map(call => call.headers.get("x-request-id"))).size, 3);
+});
+
+test("gateway failure diagnostics keep only endpoint, HTTP status and safe error code", async t => {
+  const logs = [];
+  t.mock.method(console, "info", (...args) => logs.push(args.join(" ")));
+  const gateway = new GitHubCopilotGateway(async () => new Response("raw-sensitive-token", { status: 400 }));
+  await assert.rejects(() => gateway.models({
+    token: "copilot-secret-sentinel", origin: "https://api.githubcopilot.com", expiresAt: Date.now() + 3600000, revision: 1,
+  }), { code: "COPILOT_UPSTREAM_UNAVAILABLE" });
+  const records = logs.filter(line => line.startsWith("[subscription.gateway] "))
+    .map(line => JSON.parse(line.slice("[subscription.gateway] ".length)));
+  assert.deepEqual(records, [{ endpoint: "/models", httpStatus: 400, code: "COPILOT_UPSTREAM_UNAVAILABLE" }]);
+  assert.ok(!logs.join("\n").includes("raw-sensitive-token"));
+  assert.ok(!logs.join("\n").includes("copilot-secret-sentinel"));
 });

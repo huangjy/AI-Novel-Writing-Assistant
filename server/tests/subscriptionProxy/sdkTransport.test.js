@@ -14,6 +14,16 @@ test("real Chat SDK uses the account credential and never forwards application a
   const direct = await f.request(); await direct.text();
   assert.equal(f.calls[1].init.headers.Cookie, undefined);
   assert.ok(!JSON.stringify(f.calls[1].init.headers).includes("app-secret"));
+  for (const call of f.calls) {
+    const headers = new Headers(call.init.headers);
+    assert.equal(headers.get("editor-version"), "vscode/1.110.1");
+    assert.equal(headers.get("editor-plugin-version"), "copilot-chat/0.38.2");
+    assert.equal(headers.get("copilot-integration-id"), "vscode-chat");
+    assert.equal(headers.get("user-agent"), "GitHubCopilotChat/0.38.2");
+    assert.equal(headers.get("x-github-api-version"), "2025-10-01");
+    assert.ok(headers.get("x-request-id"));
+  }
+  assert.notEqual(f.calls[0].init.headers["X-Request-Id"], f.calls[1].init.headers["X-Request-Id"]);
 });
 
 test("real Responses SDK consumes native output and usage without a Chat bridge", async t => {
@@ -27,6 +37,12 @@ test("real Responses SDK consumes native output and usage without a Chat bridge"
   assert.equal(response.text, "response-ok");
   assert.equal(response.usage_metadata.total_tokens, 3);
   assert.equal(f.calls[0].url, "https://api.githubcopilot.com/responses");
+  const headers = new Headers(f.calls[0].init.headers);
+  assert.equal(headers.get("copilot-integration-id"), "vscode-chat");
+  assert.equal(headers.get("editor-version"), "vscode/1.110.1");
+  assert.equal(headers.get("editor-plugin-version"), "copilot-chat/0.38.2");
+  assert.equal(headers.get("user-agent"), "GitHubCopilotChat/0.38.2");
+  assert.equal(headers.get("x-github-api-version"), "2025-10-01");
 });
 
 test("SDK streaming merges fragmented tool arguments and structured output remains parseable", async t => {

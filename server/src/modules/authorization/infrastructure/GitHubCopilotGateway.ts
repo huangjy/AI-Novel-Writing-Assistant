@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CopilotModel } from "@ai-novel/shared/types/authorization";
+import { createCopilotRequestHeaders } from "../../../platform/llm/subscription-proxy";
 import { CopilotError, authorizationRequired, type CopilotAccess, type CopilotGateway } from "../domain/contracts";
 
 const CLIENT_ID = "Iv1.b507a08c87ecfe98";
@@ -67,13 +68,15 @@ export class GitHubCopilotGateway implements CopilotGateway {
   constructor(private readonly fetcher: typeof fetch = fetch) {}
 
   private async json(url: string, init: RequestInit = {}): Promise<unknown> {
+    let httpStatus: number | undefined;
     try {
       const signal = init.signal
         ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000);
       const response = await this.fetcher(url, {
         ...init, signal, redirect: "error",
-        headers: { Accept: "application/json", "User-Agent": "AI-Novel-Writing-Assistant", ...init.headers },
+        headers: { Accept: "application/json", ...createCopilotRequestHeaders(), ...init.headers },
       });
+      httpStatus = response.status;
       if (response.status === 401) throw authorizationRequired();
       if (response.status === 403) throw new CopilotError("COPILOT_ACCESS_DENIED", "GitHub Copilot 拒绝访问，请检查订阅与组织授权。", 403);
       if (!response.ok) throw new CopilotError("COPILOT_UPSTREAM_UNAVAILABLE", "GitHub Copilot 暂时无法连接，请稍后重试。", 502);
@@ -81,9 +84,11 @@ export class GitHubCopilotGateway implements CopilotGateway {
       if (text.length > 4_000_000) throw new Error();
       return JSON.parse(text);
     } catch (error) {
-      if (error instanceof CopilotError) throw error;
       if (init.signal?.aborted) throw init.signal.reason;
-      throw new CopilotError("COPILOT_UPSTREAM_UNAVAILABLE", "GitHub Copilot 暂时无法连接，请稍后重试。", 502);
+      const safe = error instanceof CopilotError ? error
+        : new CopilotError("COPILOT_UPSTREAM_UNAVAILABLE", "GitHub Copilot 暂时无法连接，请稍后重试。", 502);
+      console.info("[subscription.gateway]", JSON.stringify({ endpoint: new URL(url).pathname, httpStatus, code: safe.code }));
+      throw safe;
     }
   }
 

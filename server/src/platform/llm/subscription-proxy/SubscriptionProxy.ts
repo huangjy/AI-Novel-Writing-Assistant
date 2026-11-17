@@ -2,6 +2,7 @@ import { getLines, getMessages } from "@langchain/core/utils/event_source_parse"
 import type { CopilotModel } from "@ai-novel/shared/types/authorization";
 import { z } from "zod";
 import { AccountRequestQueue } from "./AccountRequestQueue";
+import { createCopilotRequestHeaders } from "./CopilotRequestHeaders";
 import { SubscriptionError } from "./SubscriptionError";
 
 export const SUBSCRIPTION_BASE_URL = "https://copilot.internal.invalid/v1";
@@ -124,9 +125,9 @@ export class SubscriptionProxy {
         const response = await this.fetcher(`${upstreamOrigin(access.origin)}${path}`, {
           method: "POST", redirect: "error", signal: controller.signal,
           headers: {
+            ...createCopilotRequestHeaders(),
             Authorization: `Bearer ${access.token}`, "Content-Type": "application/json",
             Accept: body.stream ? "text/event-stream" : "application/json",
-            "User-Agent": "AI-Novel-Writing-Assistant",
           },
           body: JSON.stringify(body),
         });
