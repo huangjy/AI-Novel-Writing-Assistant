@@ -1,13 +1,27 @@
-import type { StructuredFailureReason, StructuredResponseEvidence } from "@ai-novel/shared/types/structuredDiagnostics";
+import type {
+  StructuredFailureReason,
+  StructuredResponseEvidence,
+} from "@ai-novel/shared/types/structuredDiagnostics";
 import { toJSONSchema, type ZodType } from "zod";
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import type { ModelRouteRequestProtocol } from "@ai-novel/shared/types/novel";
-import { resolveCapability, storedCapability, type StructuredMode } from "./compatibility";
+import {
+  resolveCapability,
+  storedCapability,
+  type StructuredMode,
+} from "./compatibility";
 import { getProviderDefaultBaseUrl, isBuiltInProvider } from "./providers";
-import { isDeepSeekThinkingModeProvider, isGlmThinkingModeProvider } from "./reasoning";
+import {
+  isDeepSeekThinkingModeProvider,
+  isGlmThinkingModeProvider,
+} from "./reasoning";
 
 export type StructuredExecutionMode = "plain" | "structured";
-export type StructuredOutputStrategy = "json_schema" | "json_object" | "tool_calling" | "prompt_json";
+export type StructuredOutputStrategy =
+  | "json_schema"
+  | "json_object"
+  | "tool_calling"
+  | "prompt_json";
 export type StructuredOutputErrorCategory =
   | "unsupported_native_json"
   | "thinking_pollution"
@@ -81,7 +95,9 @@ function normalizeModelId(model: string): string {
     return "";
   }
   const parts = normalized.split("/").filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] ?? normalized : normalized;
+  return parts.length > 0
+    ? (parts[parts.length - 1] ?? normalized)
+    : normalized;
 }
 
 function isQwenThinkingOnlyModel(model: string): boolean {
@@ -89,7 +105,9 @@ function isQwenThinkingOnlyModel(model: string): boolean {
   if (!normalizedModel) {
     return false;
   }
-  return normalizedModel.startsWith("qwq") || normalizedModel.includes("thinking");
+  return (
+    normalizedModel.startsWith("qwq") || normalizedModel.includes("thinking")
+  );
 }
 
 function supportsDashScopeQwenNativeStructuredOutput(model: string): boolean {
@@ -115,9 +133,11 @@ function supportsDashScopeQwenNativeStructuredOutput(model: string): boolean {
   if (normalizedModel.startsWith("qwen-long")) {
     return true;
   }
-  return normalizedModel.startsWith("qwen2.5")
-    && !normalizedModel.includes("math")
-    && !normalizedModel.includes("coder");
+  return (
+    normalizedModel.startsWith("qwen2.5") &&
+    !normalizedModel.includes("math") &&
+    !normalizedModel.includes("coder")
+  );
 }
 
 function isQwenMixedThinkingModel(model: string): boolean {
@@ -125,24 +145,31 @@ function isQwenMixedThinkingModel(model: string): boolean {
   if (!normalizedModel || isQwenThinkingOnlyModel(normalizedModel)) {
     return false;
   }
-  return normalizedModel.startsWith("qwen3")
-    || normalizedModel.startsWith("qwen-plus")
-    || normalizedModel.startsWith("qwen-flash")
-    || normalizedModel.startsWith("qwen-turbo");
+  return (
+    normalizedModel.startsWith("qwen3") ||
+    normalizedModel.startsWith("qwen-plus") ||
+    normalizedModel.startsWith("qwen-flash") ||
+    normalizedModel.startsWith("qwen-turbo")
+  );
 }
 
 function supportsNativeJson(profile: StructuredOutputProfile): boolean {
   return profile.nativeJsonSchema || profile.nativeJsonObject;
 }
 
-function buildProfile(input: Partial<StructuredOutputProfile> & { family: string }): StructuredOutputProfile {
+function buildProfile(
+  input: Partial<StructuredOutputProfile> & { family: string },
+): StructuredOutputProfile {
   return {
     nativeJsonSchema: input.nativeJsonSchema ?? false,
     nativeJsonObject: input.nativeJsonObject ?? false,
-    requiresNonThinkingForStructured: input.requiresNonThinkingForStructured ?? false,
+    requiresNonThinkingForStructured:
+      input.requiresNonThinkingForStructured ?? false,
     supportsReasoningToggle: input.supportsReasoningToggle ?? false,
-    omitMaxTokensForNativeStructured: input.omitMaxTokensForNativeStructured ?? false,
-    preferredStructuredStrategy: input.preferredStructuredStrategy ?? "prompt_json",
+    omitMaxTokensForNativeStructured:
+      input.omitMaxTokensForNativeStructured ?? false,
+    preferredStructuredStrategy:
+      input.preferredStructuredStrategy ?? "prompt_json",
     safeStructuredMaxTokens: input.safeStructuredMaxTokens,
     family: input.family,
   };
@@ -162,15 +189,18 @@ function resolveBuiltinStructuredOutputProfile(input: {
   // A provider label or model name does not prove that a custom gateway supports
   // its upstream vendor's response_format extensions. Trust only the vendor's
   // direct endpoint (or its default endpoint when no override is supplied).
-  const usesOfficialEndpoint = (providerName: LLMProvider, hostPattern: RegExp) => (
-    hostPattern.test(host) || (input.provider === providerName && !host)
-  );
+  const usesOfficialEndpoint = (
+    providerName: LLMProvider,
+    hostPattern: RegExp,
+  ) => hostPattern.test(host) || (input.provider === providerName && !host);
   const qwenFamily = isQwenFamily(model);
   const qwenMixedThinkingModel = isQwenMixedThinkingModel(model);
   const qwenThinkingOnlyModel = isQwenThinkingOnlyModel(model);
-  const qwenNativeStructuredModel = supportsDashScopeQwenNativeStructuredOutput(model);
+  const qwenNativeStructuredModel =
+    supportsDashScopeQwenNativeStructuredOutput(model);
   const isDashScopeQwen = usesOfficialEndpoint("qwen", DASHSCOPE_HOST_PATTERN);
-  const isModelScopeQwen = MODELSCOPE_HOST_PATTERN.test(host) || provider.includes("modelscope");
+  const isModelScopeQwen =
+    MODELSCOPE_HOST_PATTERN.test(host) || provider.includes("modelscope");
 
   if (input.requestProtocol === "anthropic") {
     return buildProfile({
@@ -206,7 +236,9 @@ function resolveBuiltinStructuredOutputProfile(input: {
     return buildProfile({
       family: "kimi",
       nativeJsonObject: supportsJsonObject,
-      preferredStructuredStrategy: supportsJsonObject ? "json_object" : "prompt_json",
+      preferredStructuredStrategy: supportsJsonObject
+        ? "json_object"
+        : "prompt_json",
     });
   }
   if (usesOfficialEndpoint("deepseek", DEEPSEEK_HOST_PATTERN)) {
@@ -241,7 +273,9 @@ function resolveBuiltinStructuredOutputProfile(input: {
     return buildProfile({
       family: "dashscope_qwen",
       nativeJsonObject: qwenNativeStructuredModel,
-      preferredStructuredStrategy: qwenNativeStructuredModel ? "json_object" : "prompt_json",
+      preferredStructuredStrategy: qwenNativeStructuredModel
+        ? "json_object"
+        : "prompt_json",
       requiresNonThinkingForStructured: qwenMixedThinkingModel,
       supportsReasoningToggle: qwenMixedThinkingModel,
       omitMaxTokensForNativeStructured: qwenNativeStructuredModel,
@@ -252,7 +286,8 @@ function resolveBuiltinStructuredOutputProfile(input: {
     return buildProfile({
       family: "modelscope_qwen",
       preferredStructuredStrategy: "prompt_json",
-      requiresNonThinkingForStructured: qwenMixedThinkingModel && !qwenThinkingOnlyModel,
+      requiresNonThinkingForStructured:
+        qwenMixedThinkingModel && !qwenThinkingOnlyModel,
       supportsReasoningToggle: qwenMixedThinkingModel && !qwenThinkingOnlyModel,
       safeStructuredMaxTokens: 8192,
     });
@@ -295,7 +330,9 @@ function resolveBuiltinStructuredOutputProfile(input: {
   }
   if (customProvider) {
     return buildProfile({
-      family: qwenFamily ? "custom_openai_compatible_qwen" : "custom_openai_compatible",
+      family: qwenFamily
+        ? "custom_openai_compatible_qwen"
+        : "custom_openai_compatible",
       preferredStructuredStrategy: "prompt_json",
       safeStructuredMaxTokens: 8192,
     });
@@ -307,37 +344,73 @@ function resolveBuiltinStructuredOutputProfile(input: {
   });
 }
 
-export function resolveStructuredOutputProfile(input: Parameters<typeof resolveBuiltinStructuredOutputProfile>[0]): StructuredOutputProfile {
+export function resolveStructuredOutputProfile(
+  input: Parameters<typeof resolveBuiltinStructuredOutputProfile>[0],
+): StructuredOutputProfile {
   const builtin = resolveBuiltinStructuredOutputProfile(input);
   const capability = resolveCapability(input);
   const stored = storedCapability(input);
-  const customEndpoint = !isBuiltInProvider(input.provider)
-    || Boolean(input.baseURL && extractHost(input.baseURL) !== extractHost(getProviderDefaultBaseUrl(input.provider)));
-  const modes = stored?.structuredModes ?? (capability.family === "spark" ? ["prompt_only" as const] : [
-    ...(builtin.nativeJsonSchema ? ["json_schema" as const] : []),
-    ...(builtin.nativeJsonObject ? ["json_object" as const] : []),
-    ...(builtin.nativeJsonSchema || builtin.nativeJsonObject ? ["tool_calling" as const] : []),
-    "prompt_only" as const,
-  ]);
-  const available = modes.filter((mode) => !capability.failedModes.includes(mode));
-  return { ...builtin, structuredModes: modes, failedModes: capability.failedModes,
-    nativeJsonSchema: available.includes("json_schema"), nativeJsonObject: available.includes("json_object"),
-    preferredStructuredStrategy: available[0] === "prompt_only" || !available[0] ? "prompt_json" : available[0],
+  const customEndpoint =
+    !isBuiltInProvider(input.provider) ||
+    Boolean(
+      input.baseURL &&
+      extractHost(input.baseURL) !==
+        extractHost(getProviderDefaultBaseUrl(input.provider)),
+    );
+  const modes =
+    stored?.structuredModes ??
+    (capability.family === "spark"
+      ? ["prompt_only" as const]
+      : [
+          ...(builtin.nativeJsonSchema ? ["json_schema" as const] : []),
+          ...(builtin.nativeJsonObject ? ["json_object" as const] : []),
+          ...(builtin.nativeJsonSchema || builtin.nativeJsonObject
+            ? ["tool_calling" as const]
+            : []),
+          "prompt_only" as const,
+        ]);
+  const available = modes.filter(
+    (mode) => !capability.failedModes.includes(mode),
+  );
+  return {
+    ...builtin,
+    structuredModes: modes,
+    failedModes: capability.failedModes,
+    nativeJsonSchema: available.includes("json_schema"),
+    nativeJsonObject: available.includes("json_object"),
+    preferredStructuredStrategy:
+      available[0] === "prompt_only" || !available[0]
+        ? "prompt_json"
+        : available[0],
     supportsReasoningToggle: capability.thinkingToggle.supported,
     // Unknown gateways must not inherit request-level thinking-on defaults.
     // A saved probe or override remains authoritative about usable controls.
-    requiresNonThinkingForStructured: stored ? capability.thinkingToggle.supported : customEndpoint || builtin.requiresNonThinkingForStructured,
+    requiresNonThinkingForStructured: stored
+      ? capability.thinkingToggle.supported
+      : customEndpoint || builtin.requiresNonThinkingForStructured,
   };
 }
 
-export function structuredStrategySequence<T>(profile: StructuredOutputProfile, schema: ZodType<T>): StructuredOutputStrategy[] {
+export function structuredStrategySequence<T>(
+  profile: StructuredOutputProfile,
+  schema: ZodType<T>,
+): StructuredOutputStrategy[] {
   if (schemaAllowsTopLevelArray(schema)) return ["prompt_json"];
   const modes = profile.structuredModes ?? [
     ...(profile.nativeJsonSchema ? ["json_schema" as const] : []),
     ...(profile.nativeJsonObject ? ["json_object" as const] : []),
     "prompt_only" as const,
   ];
-  return [...new Set([...modes.filter((mode) => !profile.failedModes?.includes(mode)).map((mode) => mode === "prompt_only" ? "prompt_json" as const : mode), "prompt_json" as const])];
+  return [
+    ...new Set([
+      ...modes
+        .filter((mode) => !profile.failedModes?.includes(mode))
+        .map((mode) =>
+          mode === "prompt_only" ? ("prompt_json" as const) : mode,
+        ),
+      "prompt_json" as const,
+    ]),
+  ];
 }
 
 export function schemaAllowsTopLevelArray<T>(schema: ZodType<T>): boolean {
@@ -345,23 +418,30 @@ export function schemaAllowsTopLevelArray<T>(schema: ZodType<T>): boolean {
   if (probe.success) {
     return true;
   }
-  return probe.error.issues.some((issue) => issue.path.length === 0 && issue.code !== "invalid_type");
+  return probe.error.issues.some(
+    (issue) => issue.path.length === 0 && issue.code !== "invalid_type",
+  );
 }
 
 export function selectStructuredOutputStrategy<T>(
   profile: StructuredOutputProfile,
   schema: ZodType<T>,
 ): StructuredOutputStrategy {
-  if (profile.structuredModes) return structuredStrategySequence(profile, schema)[0];
+  if (profile.structuredModes)
+    return structuredStrategySequence(profile, schema)[0];
   if (schemaAllowsTopLevelArray(schema)) {
     return "prompt_json";
   }
-  if (profile.preferredStructuredStrategy === "json_schema" && profile.nativeJsonSchema) {
+  if (
+    profile.preferredStructuredStrategy === "json_schema" &&
+    profile.nativeJsonSchema
+  ) {
     return "json_schema";
   }
   if (
-    (profile.preferredStructuredStrategy === "json_object" || profile.preferredStructuredStrategy === "json_schema")
-    && profile.nativeJsonObject
+    (profile.preferredStructuredStrategy === "json_object" ||
+      profile.preferredStructuredStrategy === "json_schema") &&
+    profile.nativeJsonObject
   ) {
     return "json_object";
   }
@@ -369,7 +449,9 @@ export function selectStructuredOutputStrategy<T>(
 }
 
 function sanitizeSchemaName(label: string): string {
-  const normalized = label.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  const normalized = label
+    .replace(/[^a-zA-Z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   return normalized.slice(0, 48) || "structured_output";
 }
 
@@ -387,7 +469,14 @@ export function buildStructuredResponseFormat<T>(input: {
       json_schema: {
         name: sanitizeSchemaName(input.label),
         strict: true,
-        schema: toJSONSchema(input.schema, { unrepresentable: "any" }),
+        schema: toJSONSchema(input.schema, {
+          unrepresentable: "any",
+          override: ({ jsonSchema }) => {
+            if (jsonSchema.type === "object" && jsonSchema.properties) {
+              jsonSchema.required = Object.keys(jsonSchema.properties);
+            }
+          },
+        }),
       },
     };
   }
@@ -402,11 +491,23 @@ export function buildStructuredCallOptions<T>(input: {
 }): Record<string, unknown> {
   const responseFormat = buildStructuredResponseFormat(input);
   if (responseFormat) return { response_format: responseFormat };
-  if (input.strategy === "tool_calling") return {
-    tools: [{ type: "function", function: { name: "structured_output", description: "Return the requested structured result",
-      parameters: toJSONSchema(input.schema, { unrepresentable: "any" }) } }],
-    tool_choice: { type: "function", function: { name: "structured_output" } },
-  };
+  if (input.strategy === "tool_calling")
+    return {
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "structured_output",
+            description: "Return the requested structured result",
+            parameters: toJSONSchema(input.schema, { unrepresentable: "any" }),
+          },
+        },
+      ],
+      tool_choice: {
+        type: "function",
+        function: { name: "structured_output" },
+      },
+    };
   return {};
 }
 
@@ -414,84 +515,96 @@ export function classifyStructuredOutputFailure(input: {
   error?: unknown;
   rawContent?: string;
 }): StructuredOutputErrorCategory {
-  const message = input.error instanceof Error
-    ? input.error.message
-    : typeof input.error === "string"
-      ? input.error
-      : String(input.error ?? "");
+  const message =
+    input.error instanceof Error
+      ? input.error.message
+      : typeof input.error === "string"
+        ? input.error
+        : String(input.error ?? "");
   const rawContent = input.rawContent ?? "";
   const lowerMessage = message.toLowerCase();
   const trimmedRawContent = rawContent.trim().toLowerCase();
   const haystack = `${message}\n${rawContent}`.toLowerCase();
-  if ((input.error && typeof input.error === "object" && "status" in input.error && input.error.status === 402)
-    || /余额不足|额度不足|quota\s+exhausted|insufficient\s+(?:balance|credits)|payment required/.test(haystack)) {
+  if (
+    (input.error &&
+      typeof input.error === "object" &&
+      "status" in input.error &&
+      input.error.status === 402) ||
+    /余额不足|额度不足|quota\s+exhausted|insufficient\s+(?:balance|credits)|payment required/.test(
+      haystack,
+    )
+  ) {
     return "model_unavailable";
   }
 
   if (
-    haystack.includes("response_format")
-    || haystack.includes("json_schema")
-    || haystack.includes("json_object")
-    || haystack.includes("unsupported response format")
+    haystack.includes("response_format") ||
+    haystack.includes("json_schema") ||
+    haystack.includes("json_object") ||
+    haystack.includes("unsupported response format")
   ) {
     return "unsupported_native_json";
   }
   if (rawContent.includes("<think>") || rawContent.includes("</think>")) {
     return "thinking_pollution";
   }
-  const rawLooksLikeHtmlPage = trimmedRawContent.startsWith("<!doctype")
-    || trimmedRawContent.startsWith("<html")
-    || trimmedRawContent.startsWith("<body")
-    || trimmedRawContent.startsWith("<head")
-    || trimmedRawContent.startsWith("<title");
-  const messageLooksLikeHtmlTransport = lowerMessage.includes("text/html")
-    || lowerMessage.includes("content-type: text/html")
-    || lowerMessage.includes("<!doctype")
-    || lowerMessage.includes("<html")
-    || lowerMessage.includes("<body")
-    || lowerMessage.includes("</div>")
-    || lowerMessage.includes("</script>")
-    || lowerMessage.includes("<title>403")
-    || lowerMessage.includes("<title>404")
-    || lowerMessage.includes("<title>429")
-    || lowerMessage.includes("<title>502")
-    || lowerMessage.includes("<title>503");
+  const rawLooksLikeHtmlPage =
+    trimmedRawContent.startsWith("<!doctype") ||
+    trimmedRawContent.startsWith("<html") ||
+    trimmedRawContent.startsWith("<body") ||
+    trimmedRawContent.startsWith("<head") ||
+    trimmedRawContent.startsWith("<title");
+  const messageLooksLikeHtmlTransport =
+    lowerMessage.includes("text/html") ||
+    lowerMessage.includes("content-type: text/html") ||
+    lowerMessage.includes("<!doctype") ||
+    lowerMessage.includes("<html") ||
+    lowerMessage.includes("<body") ||
+    lowerMessage.includes("</div>") ||
+    lowerMessage.includes("</script>") ||
+    lowerMessage.includes("<title>403") ||
+    lowerMessage.includes("<title>404") ||
+    lowerMessage.includes("<title>429") ||
+    lowerMessage.includes("<title>502") ||
+    lowerMessage.includes("<title>503");
   if (
-    rawLooksLikeHtmlPage
-    || messageLooksLikeHtmlTransport
-    || (
-      trimmedRawContent.startsWith("<")
-      && (
-        lowerMessage.includes("unexpected token '<'")
-        || lowerMessage.includes("is not valid json")
-      )
-    )
+    rawLooksLikeHtmlPage ||
+    messageLooksLikeHtmlTransport ||
+    (trimmedRawContent.startsWith("<") &&
+      (lowerMessage.includes("unexpected token '<'") ||
+        lowerMessage.includes("is not valid json")))
   ) {
     return "transport_error";
   }
   if (
-    haystack.includes("未检测到完整 json 值")
-    || haystack.includes("unexpected end of json input")
-    || haystack.includes("unterminated")
-    || haystack.includes("end of json")
+    haystack.includes("未检测到完整 json 值") ||
+    haystack.includes("unexpected end of json input") ||
+    haystack.includes("unterminated") ||
+    haystack.includes("end of json")
   ) {
     return "incomplete_json";
   }
   if (
-    haystack.includes("expected ',' or '}'")
-    || haystack.includes("unexpected token")
-    || haystack.includes("json 解析失败")
-    || haystack.includes("malformed")
+    haystack.includes("expected ',' or '}'") ||
+    haystack.includes("unexpected token") ||
+    haystack.includes("json 解析失败") ||
+    haystack.includes("malformed")
   ) {
     return "malformed_json";
   }
-  if (haystack.includes("zod") || haystack.includes("schema") || haystack.includes("校验错误")) {
+  if (
+    haystack.includes("zod") ||
+    haystack.includes("schema") ||
+    haystack.includes("校验错误")
+  ) {
     return "schema_mismatch";
   }
   return "transport_error";
 }
 
-export function extractStructuredOutputErrorCategory(message?: string | null): StructuredOutputErrorCategory | null {
+export function extractStructuredOutputErrorCategory(
+  message?: string | null,
+): StructuredOutputErrorCategory | null {
   const match = message?.match(/\[STRUCTURED_OUTPUT:([a-z_]+)\]/i);
   if (!match) {
     return null;
@@ -508,7 +621,9 @@ export function extractStructuredOutputErrorCategory(message?: string | null): S
     "output_budget_exhausted",
     "model_unavailable",
     "transport_error",
-  ].includes(category) ? category : null;
+  ].includes(category)
+    ? category
+    : null;
 }
 
 export class StructuredOutputError extends Error {
@@ -525,7 +640,9 @@ export class StructuredOutputError extends Error {
     retryWithNextStrategy?: boolean;
     cause?: unknown;
   }) {
-    super(`[STRUCTURED_OUTPUT:${input.category}] ${input.message}`, { cause: input.cause });
+    super(`[STRUCTURED_OUTPUT:${input.category}] ${input.message}`, {
+      cause: input.cause,
+    });
     this.name = "StructuredOutputError";
     this.category = input.category;
     this.diagnostics = input.diagnostics;
@@ -533,7 +650,9 @@ export class StructuredOutputError extends Error {
   }
 }
 
-export function describeStructuredResponseFailure(reason: StructuredFailureReason | "model_unavailable"): {
+export function describeStructuredResponseFailure(
+  reason: StructuredFailureReason | "model_unavailable",
+): {
   category: StructuredOutputErrorCategory;
   message: string;
 } {
@@ -541,32 +660,44 @@ export function describeStructuredResponseFailure(reason: StructuredFailureReaso
     case "empty_response":
       return {
         category: "empty_response",
-        message: "模型返回了空内容，没有收到可用正文。请重试；若持续出现，请检查渠道兼容性、思考设置或更换模型。",
+        message:
+          "模型返回了空内容，没有收到可用正文。请重试；若持续出现，请检查渠道兼容性、思考设置或更换模型。",
       };
     case "reasoning_budget_exhausted":
       return {
         category: "reasoning_budget_exhausted",
-        message: "模型只返回了思考内容，输出 Token 已在生成正文前耗尽。请关闭深度思考或提高输出 Token 上限后重试。",
+        message:
+          "模型只返回了思考内容，输出 Token 已在生成正文前耗尽。请关闭深度思考或提高输出 Token 上限后重试。",
       };
     case "output_budget_exhausted":
       return {
         category: "output_budget_exhausted",
-        message: "模型输出达到 Token 上限后被截断（finish_reason=length/max_tokens），结果不完整。请提高输出 Token 上限后重试。",
+        message:
+          "模型输出达到 Token 上限后被截断（finish_reason=length/max_tokens），结果不完整。请提高输出 Token 上限后重试。",
       };
     case "model_unavailable":
       return {
         category: "model_unavailable",
-        message: "模型余额或可用额度不足。请检查账户额度，或更换可用的模型渠道后重试。",
+        message:
+          "模型余额或可用额度不足。请检查账户额度，或更换可用的模型渠道后重试。",
       };
     case "blocked":
-      return { category: "transport_error", message: "模型拒绝或过滤了本次请求，请调整创作要求或核对模型服务提示。" };
+      return {
+        category: "transport_error",
+        message: "模型拒绝或过滤了本次请求，请调整创作要求或核对模型服务提示。",
+      };
     case "cancelled":
       return { category: "transport_error", message: "本次模型请求已取消。" };
     default:
-      return { category: "transport_error", message: "模型未返回完整可用的结构化结果。" };
+      return {
+        category: "transport_error",
+        message: "模型未返回完整可用的结构化结果。",
+      };
   }
 }
 
-export function canUseForcedJsonOutput(profile: StructuredOutputProfile): boolean {
+export function canUseForcedJsonOutput(
+  profile: StructuredOutputProfile,
+): boolean {
   return supportsNativeJson(profile);
 }

@@ -7,17 +7,133 @@ const compat = require("../dist/llm/compatibility/store.js");
 compat.recordFailedMode = async () => {}; // Persistence and cache invalidation are covered by modelCompatibility.test.js.
 const factory = require("../dist/llm/factory.js");
 const structuredFallbackSettings = require("../dist/llm/structuredFallbackSettings.js");
-const { buildStructuredResponseFormat, resolveStructuredOutputProfile } = require("../dist/llm/structuredOutput.js");
+const {
+  buildStructuredResponseFormat,
+  resolveStructuredOutputProfile,
+} = require("../dist/llm/structuredOutput.js");
 const structuredInvoke = require("../dist/llm/structuredInvoke.js");
-const { plannerOutputSchema } = require("../dist/services/planner/plannerSchemas.js");
-const { normalizePlannerOutput } = require("../dist/services/planner/PlannerService.js");
+const {
+  plannerOutputSchema,
+} = require("../dist/services/planner/plannerSchemas.js");
+const {
+  normalizePlannerOutput,
+} = require("../dist/services/planner/PlannerService.js");
+
+test("strict response schemas require every resource recommendation field without changing nullability", () => {
+  const {
+    novelCreateResourceRecommendationSchema,
+  } = require("../dist/prompting/prompts/novel/resourceRecommendation.promptSchemas.js");
+  const original = z.toJSONSchema(novelCreateResourceRecommendationSchema, {
+    unrepresentable: "any",
+  });
+  const format = buildStructuredResponseFormat({
+    strategy: "json_schema",
+    schema: novelCreateResourceRecommendationSchema,
+    label: "novel.create.resource_recommendation@v3",
+  });
+
+  assert.equal(format.json_schema.strict, true);
+  assert.deepEqual(
+    format.json_schema.schema.required,
+    Object.keys(original.properties),
+  );
+  assert.deepEqual(format.json_schema.schema.properties, original.properties);
+  assert.equal(format.json_schema.schema.additionalProperties, false);
+  assert.equal(original.required.includes("caution"), false);
+});
+
+test("strict response schemas also require nullable optional fields in nested objects and arrays", () => {
+  const schema = z.object({
+    details: z.object({ note: z.string().nullable().optional() }),
+    items: z.array(
+      z.object({ title: z.string(), reason: z.string().nullable().optional() }),
+    ),
+    choice: z.union([
+      z.object({
+        kind: z.literal("first"),
+        note: z.string().nullable().optional(),
+      }),
+      z.object({
+        kind: z.literal("second"),
+        note: z.string().nullable().optional(),
+      }),
+    ]),
+  });
+  const format = buildStructuredResponseFormat({
+    strategy: "json_schema",
+    schema,
+    label: "strict.nested",
+  });
+  const properties = format.json_schema.schema.properties;
+
+  assert.deepEqual(properties.details.required, ["note"]);
+  assert.deepEqual(properties.items.items.required, ["title", "reason"]);
+  for (const variant of properties.choice.anyOf) {
+    assert.deepEqual(variant.required, ["kind", "note"]);
+  }
+  assert.equal(
+    schema.safeParse({
+      details: {},
+      items: [{ title: "item" }],
+      choice: { kind: "first" },
+    }).success,
+    true,
+  );
+});
+
+test("Responses serialization preserves strict required fields and the configured output limit", async () => {
+  const { ChatOpenAI } = require("@langchain/openai");
+  const { HumanMessage } = require("@langchain/core/messages");
+  const {
+    buildStructuredCallOptions,
+  } = require("../dist/llm/structuredOutput.js");
+  const {
+    novelCreateResourceRecommendationSchema,
+  } = require("../dist/prompting/prompts/novel/resourceRecommendation.promptSchemas.js");
+  let payload;
+  const llm = new ChatOpenAI({
+    model: "offline-model",
+    useResponsesApi: true,
+    apiKey: "offline-test",
+    maxTokens: 128000,
+    maxRetries: 0,
+    configuration: {
+      baseURL: "https://offline.invalid/v1",
+      fetch: async (input, init) => {
+        payload = await new Request(input, init).json();
+        throw new Error("offline request captured");
+      },
+    },
+  });
+
+  await assert.rejects(async () => {
+    const stream = await llm.stream(
+      [new HumanMessage("test")],
+      buildStructuredCallOptions({
+        strategy: "json_schema",
+        schema: novelCreateResourceRecommendationSchema,
+        label: "novel.create.resource_recommendation@v3",
+      }),
+    );
+    for await (const chunk of stream) {
+      assert.fail(`Unexpected response: ${chunk.content}`);
+    }
+  });
+
+  assert.equal(payload.max_output_tokens, 128000);
+  assert.equal(payload.text.format.strict, true);
+  assert.deepEqual(
+    payload.text.format.schema.required,
+    Object.keys(payload.text.format.schema.properties),
+  );
+});
 
 test("parseStructuredLlmRawContentDetailed recovers when repair output is truncated but completable", async () => {
   const originalGetLLM = factory.getLLM;
 
   factory.getLLM = async () => ({
     stream: async function* () {
-      yield { content: "{\"value\":\"fixed\"" };
+      yield { content: '{"value":"fixed"' };
     },
   });
 
@@ -66,25 +182,29 @@ test("parseStructuredLlmRawContentDetailed unwraps singleton array wrappers for 
 
 test("parseStructuredLlmRawContentDetailed preserves planner goal aliases after singleton unwrap", async () => {
   const result = await structuredInvoke.parseStructuredLlmRawContentDetailed({
-    rawContent: JSON.stringify([{
-      title: "第 3 章",
-      goal: "接到鬼宅委托并决定前往现场",
-      participants: ["林渊", "委托人"],
-      reveals: ["城南旧宅出现异常阴气"],
-      riskNotes: ["不要把委托写成背景复述"],
-      hookTarget: "章末留下进宅前的危险预感",
-      planRole: "progress",
-      phaseLabel: "委托启动",
-      mustAdvance: ["确认鬼宅地址"],
-      mustPreserve: ["主角仍在摸索事务所运营"],
-      scenes: [{
-        title: "陌生来电",
-        sceneGoal: "让委托人说出鬼宅地址",
-        conflict: "电话断续且信息不完整",
-        reveal: "旧宅里出现无法解释的脚步声",
-        emotionBeat: "疑虑升高",
-      }],
-    }]),
+    rawContent: JSON.stringify([
+      {
+        title: "第 3 章",
+        goal: "接到鬼宅委托并决定前往现场",
+        participants: ["林渊", "委托人"],
+        reveals: ["城南旧宅出现异常阴气"],
+        riskNotes: ["不要把委托写成背景复述"],
+        hookTarget: "章末留下进宅前的危险预感",
+        planRole: "progress",
+        phaseLabel: "委托启动",
+        mustAdvance: ["确认鬼宅地址"],
+        mustPreserve: ["主角仍在摸索事务所运营"],
+        scenes: [
+          {
+            title: "陌生来电",
+            sceneGoal: "让委托人说出鬼宅地址",
+            conflict: "电话断续且信息不完整",
+            reveal: "旧宅里出现无法解释的脚步声",
+            emotionBeat: "疑虑升高",
+          },
+        ],
+      },
+    ]),
     schema: plannerOutputSchema,
     provider: "deepseek",
     model: "deepseek-chat",
@@ -106,7 +226,7 @@ test("parseStructuredLlmRawContentDetailed preserves planner goal aliases after 
 
 test("parseStructuredLlmRawContentDetailed accepts markdown fenced JSON without invoking repair", async () => {
   const result = await structuredInvoke.parseStructuredLlmRawContentDetailed({
-    rawContent: "```json\n{\"value\":\"fenced\"}\n```",
+    rawContent: '```json\n{"value":"fenced"}\n```',
     schema: z.object({
       value: z.string(),
     }),
@@ -137,22 +257,26 @@ test("parseStructuredLlmRawContentDetailed rejects empty model output without in
   };
 
   try {
-    await assert.rejects(async () => structuredInvoke.parseStructuredLlmRawContentDetailed({
-      rawContent: "   ",
-      schema: z.object({
-        value: z.string(),
-      }),
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-      label: "structured.invoke.empty",
-      maxRepairAttempts: 1,
-      strategy: "json_object",
-      profile: resolveStructuredOutputProfile({
-        provider: "deepseek",
-        model: "deepseek-v4-flash",
-        executionMode: "structured",
-      }),
-    }), /STRUCTURED_OUTPUT:empty_response.*模型返回了空内容/i);
+    await assert.rejects(
+      async () =>
+        structuredInvoke.parseStructuredLlmRawContentDetailed({
+          rawContent: "   ",
+          schema: z.object({
+            value: z.string(),
+          }),
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          label: "structured.invoke.empty",
+          maxRepairAttempts: 1,
+          strategy: "json_object",
+          profile: resolveStructuredOutputProfile({
+            provider: "deepseek",
+            model: "deepseek-v4-flash",
+            executionMode: "structured",
+          }),
+        }),
+      /STRUCTURED_OUTPUT:empty_response.*模型返回了空内容/i,
+    );
     assert.equal(repairInvoked, false);
   } finally {
     factory.getLLM = originalGetLLM;
@@ -162,9 +286,13 @@ test("parseStructuredLlmRawContentDetailed rejects empty model output without in
 test("parseStructuredLlmRawContentDetailed preserves singleton arrays when schema expects a top-level array", async () => {
   const result = await structuredInvoke.parseStructuredLlmRawContentDetailed({
     rawContent: JSON.stringify([{ value: "wrapped" }]),
-    schema: z.array(z.object({
-      value: z.string(),
-    })).length(1),
+    schema: z
+      .array(
+        z.object({
+          value: z.string(),
+        }),
+      )
+      .length(1),
     provider: "deepseek",
     model: "deepseek-chat",
     label: "structured.invoke.singleton.array",
@@ -183,42 +311,50 @@ test("parseStructuredLlmRawContentDetailed preserves singleton arrays when schem
 });
 
 test("parseStructuredLlmRawContentDetailed does not collapse multi-item arrays for object schemas", async () => {
-  await assert.rejects(async () => structuredInvoke.parseStructuredLlmRawContentDetailed({
-    rawContent: JSON.stringify([{ value: "first" }, { value: "second" }]),
-    schema: z.object({
-      value: z.string(),
-    }),
-    provider: "deepseek",
-    model: "deepseek-chat",
-    label: "structured.invoke.multi-item.array",
-    maxRepairAttempts: 0,
-    strategy: "prompt_json",
-    profile: resolveStructuredOutputProfile({
-      provider: "deepseek",
-      model: "deepseek-chat",
-      executionMode: "structured",
-    }),
-  }), /STRUCTURED_OUTPUT:schema_mismatch/i);
+  await assert.rejects(
+    async () =>
+      structuredInvoke.parseStructuredLlmRawContentDetailed({
+        rawContent: JSON.stringify([{ value: "first" }, { value: "second" }]),
+        schema: z.object({
+          value: z.string(),
+        }),
+        provider: "deepseek",
+        model: "deepseek-chat",
+        label: "structured.invoke.multi-item.array",
+        maxRepairAttempts: 0,
+        strategy: "prompt_json",
+        profile: resolveStructuredOutputProfile({
+          provider: "deepseek",
+          model: "deepseek-chat",
+          executionMode: "structured",
+        }),
+      }),
+    /STRUCTURED_OUTPUT:schema_mismatch/i,
+  );
 });
 
 test("parseStructuredLlmRawContentDetailed surfaces schema mismatch for missing required fields", async () => {
-  await assert.rejects(async () => structuredInvoke.parseStructuredLlmRawContentDetailed({
-    rawContent: JSON.stringify({ value: "present" }),
-    schema: z.object({
-      value: z.string(),
-      requiredField: z.string(),
-    }),
-    provider: "deepseek",
-    model: "deepseek-chat",
-    label: "structured.invoke.missing.field",
-    maxRepairAttempts: 0,
-    strategy: "prompt_json",
-    profile: resolveStructuredOutputProfile({
-      provider: "deepseek",
-      model: "deepseek-chat",
-      executionMode: "structured",
-    }),
-  }), /STRUCTURED_OUTPUT:schema_mismatch/i);
+  await assert.rejects(
+    async () =>
+      structuredInvoke.parseStructuredLlmRawContentDetailed({
+        rawContent: JSON.stringify({ value: "present" }),
+        schema: z.object({
+          value: z.string(),
+          requiredField: z.string(),
+        }),
+        provider: "deepseek",
+        model: "deepseek-chat",
+        label: "structured.invoke.missing.field",
+        maxRepairAttempts: 0,
+        strategy: "prompt_json",
+        profile: resolveStructuredOutputProfile({
+          provider: "deepseek",
+          model: "deepseek-chat",
+          executionMode: "structured",
+        }),
+      }),
+    /STRUCTURED_OUTPUT:schema_mismatch/i,
+  );
 });
 
 test("parseStructuredLlmRawContentDetailed reports schema mismatch when AI repair still misses required fields", async () => {
@@ -226,28 +362,32 @@ test("parseStructuredLlmRawContentDetailed reports schema mismatch when AI repai
 
   factory.getLLM = async () => ({
     stream: async function* () {
-      yield { content: "{\"value\":\"fixed\"}" };
+      yield { content: '{"value":"fixed"}' };
     },
   });
 
   try {
-    await assert.rejects(async () => structuredInvoke.parseStructuredLlmRawContentDetailed({
-      rawContent: "not valid json",
-      schema: z.object({
-        value: z.string(),
-        requiredField: z.string(),
-      }),
-      provider: "deepseek",
-      model: "deepseek-chat",
-      label: "structured.invoke.repair.schema-mismatch",
-      maxRepairAttempts: 1,
-      strategy: "prompt_json",
-      profile: resolveStructuredOutputProfile({
-        provider: "deepseek",
-        model: "deepseek-chat",
-        executionMode: "structured",
-      }),
-    }), /STRUCTURED_OUTPUT:schema_mismatch/i);
+    await assert.rejects(
+      async () =>
+        structuredInvoke.parseStructuredLlmRawContentDetailed({
+          rawContent: "not valid json",
+          schema: z.object({
+            value: z.string(),
+            requiredField: z.string(),
+          }),
+          provider: "deepseek",
+          model: "deepseek-chat",
+          label: "structured.invoke.repair.schema-mismatch",
+          maxRepairAttempts: 1,
+          strategy: "prompt_json",
+          profile: resolveStructuredOutputProfile({
+            provider: "deepseek",
+            model: "deepseek-chat",
+            executionMode: "structured",
+          }),
+        }),
+      /STRUCTURED_OUTPUT:schema_mismatch/i,
+    );
   } finally {
     factory.getLLM = originalGetLLM;
   }
@@ -283,8 +423,13 @@ test("JSON repair receives the target schema when the original output cannot be 
       }),
     });
 
-    const repairPrompt = capturedMessages.map((message) => String(message.content)).join("\n");
-    assert.deepEqual(result.data, { value: "fixed", requiredField: "restored" });
+    const repairPrompt = capturedMessages
+      .map((message) => String(message.content))
+      .join("\n");
+    assert.deepEqual(result.data, {
+      value: "fixed",
+      requiredField: "restored",
+    });
     assert.match(repairPrompt, /目标 JSON Schema/);
     assert.match(repairPrompt, /requiredField/);
   } finally {
@@ -308,11 +453,15 @@ test("summarizeStructuredOutputFailure tells users to retry or switch models for
 test("invokeStructuredLlmDetailed degrades through unsupported and empty native JSON before using fallback models", async () => {
   const originalResolveOptions = factory.resolveLLMClientOptions;
   const originalCreateLLM = factory.createLLMFromResolvedOptions;
-  const originalGetFallbackSettings = structuredFallbackSettings.getStructuredFallbackSettings;
+  const originalGetFallbackSettings =
+    structuredFallbackSettings.getStructuredFallbackSettings;
   const calls = [];
   const providerDefaults = {
     openai: ["gpt-5-mini", "https://api.openai.com/v1"],
-    gemini: ["gemini-2.5-flash", "https://generativelanguage.googleapis.com/v1beta/openai"],
+    gemini: [
+      "gemini-2.5-flash",
+      "https://generativelanguage.googleapis.com/v1beta/openai",
+    ],
     glm: ["glm-4.5-air", "https://open.bigmodel.cn/api/paas/v4"],
     qwen: ["qwen3.6-plus", "https://dashscope.aliyuncs.com/compatible-mode/v1"],
     kimi: ["kimi-k2.5", "https://api.moonshot.cn/v1"],
@@ -322,18 +471,20 @@ test("invokeStructuredLlmDetailed degrades through unsupported and empty native 
 
   factory.resolveLLMClientOptions = async (provider, options = {}) => {
     const resolvedProvider = provider ?? "openai";
-    const [defaultModel, defaultBaseURL] = providerDefaults[resolvedProvider]
-      ?? ["custom-model", "https://proxy.example.com/v1"];
+    const [defaultModel, defaultBaseURL] = providerDefaults[
+      resolvedProvider
+    ] ?? ["custom-model", "https://proxy.example.com/v1"];
     const resolvedModel = options.model ?? defaultModel;
     const baseURL = options.baseURL ?? defaultBaseURL;
-    const structuredProfile = options.executionMode === "structured"
-      ? resolveStructuredOutputProfile({
-        provider: resolvedProvider,
-        model: resolvedModel,
-        baseURL,
-        executionMode: "structured",
-      })
-      : null;
+    const structuredProfile =
+      options.executionMode === "structured"
+        ? resolveStructuredOutputProfile({
+            provider: resolvedProvider,
+            model: resolvedModel,
+            baseURL,
+            executionMode: "structured",
+          })
+        : null;
     return {
       provider: resolvedProvider,
       providerName: resolvedProvider,
@@ -342,13 +493,15 @@ test("invokeStructuredLlmDetailed degrades through unsupported and empty native 
       apiKey: "test-key",
       baseURL,
       maxTokens: options.maxTokens,
-      reasoningEnabled: !(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningEnabled: !structuredProfile?.requiresNonThinkingForStructured,
       modelKwargs: undefined,
       includeRawResponse: false,
       executionMode: options.executionMode ?? "plain",
       structuredProfile,
       structuredStrategy: options.structuredStrategy ?? null,
-      reasoningForcedOff: Boolean(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningForcedOff: Boolean(
+        structuredProfile?.requiresNonThinkingForStructured,
+      ),
       taskType: options.taskType,
       promptMeta: options.promptMeta,
     };
@@ -359,13 +512,16 @@ test("invokeStructuredLlmDetailed degrades through unsupported and empty native 
         provider: resolved.provider,
         strategy: resolved.structuredStrategy,
       });
-      if (resolved.provider === "openai" && resolved.structuredStrategy === "json_schema") {
+      if (
+        resolved.provider === "openai" &&
+        resolved.structuredStrategy === "json_schema"
+      ) {
         throw new Error("response_format is not supported");
       }
       if (resolved.structuredStrategy !== "prompt_json") {
         return;
       }
-      yield { content: "{\"value\":\"primary-prompt-json\"}" };
+      yield { content: '{"value":"primary-prompt-json"}' };
     },
   });
   structuredFallbackSettings.getStructuredFallbackSettings = async () => ({
@@ -401,28 +557,42 @@ test("invokeStructuredLlmDetailed degrades through unsupported and empty native 
     ]);
 
     const nativeJsonProviders = [
-      ["gemini", "gemini-2.5-flash", ["json_schema", "json_object", "tool_calling", "prompt_json"]],
+      [
+        "gemini",
+        "gemini-2.5-flash",
+        ["json_schema", "json_object", "tool_calling", "prompt_json"],
+      ],
       ["glm", "glm-4.5-air", ["json_object", "tool_calling", "prompt_json"]],
       ["qwen", "qwen3.6-plus", ["json_object", "tool_calling", "prompt_json"]],
       ["kimi", "kimi-k2.5", ["json_object", "tool_calling", "prompt_json"]],
       ["grok", "grok-4", ["json_object", "tool_calling", "prompt_json"]],
-      ["deepseek", "deepseek-v4-flash", ["json_object", "tool_calling", "prompt_json"]],
+      [
+        "deepseek",
+        "deepseek-v4-flash",
+        ["json_object", "tool_calling", "prompt_json"],
+      ],
     ];
     for (const [provider, model, expectedStrategies] of nativeJsonProviders) {
       calls.length = 0;
-      const providerResult = await structuredInvoke.invokeStructuredLlmDetailed({
-        provider,
-        model,
-        label: `structured.invoke.compat.${provider}-empty-json`,
-        taskType: "planner",
-        schema: z.object({
-          value: z.string(),
-        }),
-        systemPrompt: "只返回 JSON。",
-        userPrompt: "给我一个 value。",
-      });
+      const providerResult = await structuredInvoke.invokeStructuredLlmDetailed(
+        {
+          provider,
+          model,
+          label: `structured.invoke.compat.${provider}-empty-json`,
+          taskType: "planner",
+          schema: z.object({
+            value: z.string(),
+          }),
+          systemPrompt: "只返回 JSON。",
+          userPrompt: "给我一个 value。",
+        },
+      );
 
-      assert.deepEqual(providerResult.data, { value: "primary-prompt-json" }, provider);
+      assert.deepEqual(
+        providerResult.data,
+        { value: "primary-prompt-json" },
+        provider,
+      );
       assert.deepEqual(
         calls,
         expectedStrategies.map((strategy) => ({ provider, strategy })),
@@ -432,30 +602,37 @@ test("invokeStructuredLlmDetailed degrades through unsupported and empty native 
   } finally {
     factory.resolveLLMClientOptions = originalResolveOptions;
     factory.createLLMFromResolvedOptions = originalCreateLLM;
-    structuredFallbackSettings.getStructuredFallbackSettings = originalGetFallbackSettings;
+    structuredFallbackSettings.getStructuredFallbackSettings =
+      originalGetFallbackSettings;
   }
 });
 
 test("invokeStructuredLlmDetailed switches to the configured fallback model after primary transport failure", async () => {
   const originalResolveOptions = factory.resolveLLMClientOptions;
   const originalCreateLLM = factory.createLLMFromResolvedOptions;
-  const originalGetFallbackSettings = structuredFallbackSettings.getStructuredFallbackSettings;
+  const originalGetFallbackSettings =
+    structuredFallbackSettings.getStructuredFallbackSettings;
   const calls = [];
 
   factory.resolveLLMClientOptions = async (provider, options = {}) => {
     const resolvedProvider = provider ?? "openai";
-    const resolvedModel = options.model ?? (resolvedProvider === "deepseek" ? "deepseek-chat" : "gpt-4o-mini");
-    const baseURL = options.baseURL ?? (resolvedProvider === "deepseek"
-      ? "https://api.deepseek.com/v1"
-      : "https://api.openai.com/v1");
-    const structuredProfile = options.executionMode === "structured"
-      ? resolveStructuredOutputProfile({
-        provider: resolvedProvider,
-        model: resolvedModel,
-        baseURL,
-        executionMode: "structured",
-      })
-      : null;
+    const resolvedModel =
+      options.model ??
+      (resolvedProvider === "deepseek" ? "deepseek-chat" : "gpt-4o-mini");
+    const baseURL =
+      options.baseURL ??
+      (resolvedProvider === "deepseek"
+        ? "https://api.deepseek.com/v1"
+        : "https://api.openai.com/v1");
+    const structuredProfile =
+      options.executionMode === "structured"
+        ? resolveStructuredOutputProfile({
+            provider: resolvedProvider,
+            model: resolvedModel,
+            baseURL,
+            executionMode: "structured",
+          })
+        : null;
     return {
       provider: resolvedProvider,
       providerName: resolvedProvider,
@@ -464,13 +641,15 @@ test("invokeStructuredLlmDetailed switches to the configured fallback model afte
       apiKey: "test-key",
       baseURL,
       maxTokens: options.maxTokens,
-      reasoningEnabled: !(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningEnabled: !structuredProfile?.requiresNonThinkingForStructured,
       modelKwargs: undefined,
       includeRawResponse: false,
       executionMode: options.executionMode ?? "plain",
       structuredProfile,
       structuredStrategy: options.structuredStrategy ?? null,
-      reasoningForcedOff: Boolean(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningForcedOff: Boolean(
+        structuredProfile?.requiresNonThinkingForStructured,
+      ),
       taskType: options.taskType,
       promptMeta: options.promptMeta,
     };
@@ -484,7 +663,7 @@ test("invokeStructuredLlmDetailed switches to the configured fallback model afte
       if (resolved.provider === "openai") {
         throw new Error("primary structured output failed");
       }
-      yield { content: "{\"value\":\"fallback-ok\"}" };
+      yield { content: '{"value":"fallback-ok"}' };
     },
   });
   structuredFallbackSettings.getStructuredFallbackSettings = async () => ({
@@ -519,25 +698,37 @@ test("invokeStructuredLlmDetailed switches to the configured fallback model afte
   } finally {
     factory.resolveLLMClientOptions = originalResolveOptions;
     factory.createLLMFromResolvedOptions = originalCreateLLM;
-    structuredFallbackSettings.getStructuredFallbackSettings = originalGetFallbackSettings;
+    structuredFallbackSettings.getStructuredFallbackSettings =
+      originalGetFallbackSettings;
   }
 });
 
 test("invokeStructuredLlmDetailed can disable repair replay on the fallback model", async () => {
   const originalResolveOptions = factory.resolveLLMClientOptions;
   const originalCreateLLM = factory.createLLMFromResolvedOptions;
-  const originalGetFallbackSettings = structuredFallbackSettings.getStructuredFallbackSettings;
+  const originalGetFallbackSettings =
+    structuredFallbackSettings.getStructuredFallbackSettings;
   const calls = [];
 
   factory.resolveLLMClientOptions = async (provider, options = {}) => {
     const resolvedProvider = provider ?? "openai";
-    const resolvedModel = options.model ?? (resolvedProvider === "deepseek" ? "deepseek-chat" : "gpt-4o-mini");
-    const baseURL = options.baseURL ?? (resolvedProvider === "deepseek"
-      ? "https://api.deepseek.com/v1"
-      : "https://api.openai.com/v1");
-    const structuredProfile = options.executionMode === "structured"
-      ? resolveStructuredOutputProfile({provider: resolvedProvider, model: resolvedModel, baseURL, executionMode: "structured"})
-      : null;
+    const resolvedModel =
+      options.model ??
+      (resolvedProvider === "deepseek" ? "deepseek-chat" : "gpt-4o-mini");
+    const baseURL =
+      options.baseURL ??
+      (resolvedProvider === "deepseek"
+        ? "https://api.deepseek.com/v1"
+        : "https://api.openai.com/v1");
+    const structuredProfile =
+      options.executionMode === "structured"
+        ? resolveStructuredOutputProfile({
+            provider: resolvedProvider,
+            model: resolvedModel,
+            baseURL,
+            executionMode: "structured",
+          })
+        : null;
     return {
       provider: resolvedProvider,
       providerName: resolvedProvider,
@@ -546,22 +737,28 @@ test("invokeStructuredLlmDetailed can disable repair replay on the fallback mode
       apiKey: "test-key",
       baseURL,
       maxTokens: options.maxTokens,
-      reasoningEnabled: !(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningEnabled: !structuredProfile?.requiresNonThinkingForStructured,
       modelKwargs: undefined,
       includeRawResponse: false,
       executionMode: options.executionMode ?? "plain",
       structuredProfile,
       structuredStrategy: options.structuredStrategy ?? null,
-      reasoningForcedOff: Boolean(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningForcedOff: Boolean(
+        structuredProfile?.requiresNonThinkingForStructured,
+      ),
       taskType: options.taskType,
       promptMeta: options.promptMeta,
     };
   };
   factory.createLLMFromResolvedOptions = (resolved) => ({
     stream: async function* () {
-      calls.push({provider: resolved.provider, strategy: resolved.structuredStrategy});
-      if (resolved.provider === "openai") throw new Error("primary structured output failed");
-      yield {content: "malformed fallback JSON"};
+      calls.push({
+        provider: resolved.provider,
+        strategy: resolved.structuredStrategy,
+      });
+      if (resolved.provider === "openai")
+        throw new Error("primary structured output failed");
+      yield { content: "malformed fallback JSON" };
     },
   });
   structuredFallbackSettings.getStructuredFallbackSettings = async () => ({
@@ -574,48 +771,55 @@ test("invokeStructuredLlmDetailed can disable repair replay on the fallback mode
   });
 
   try {
-    await assert.rejects(() => structuredInvoke.invokeStructuredLlmDetailed({
-      provider: "openai",
-      model: "gpt-4o-mini",
-      label: "structured.invoke.fallback.repair-budget",
-      taskType: "planner",
-      schema: z.object({value: z.string()}),
-      systemPrompt: "只返回 JSON。",
-      userPrompt: "给我一个 value。",
-      maxRepairAttempts: 1,
-      fallbackMaxRepairAttempts: 0,
-    }), /STRUCTURED_OUTPUT/);
+    await assert.rejects(
+      () =>
+        structuredInvoke.invokeStructuredLlmDetailed({
+          provider: "openai",
+          model: "gpt-4o-mini",
+          label: "structured.invoke.fallback.repair-budget",
+          taskType: "planner",
+          schema: z.object({ value: z.string() }),
+          systemPrompt: "只返回 JSON。",
+          userPrompt: "给我一个 value。",
+          maxRepairAttempts: 1,
+          fallbackMaxRepairAttempts: 0,
+        }),
+      /STRUCTURED_OUTPUT/,
+    );
     assert.deepEqual(calls, [
-      {provider: "openai", strategy: "json_schema"},
-      {provider: "deepseek", strategy: "json_object"},
-      {provider: "deepseek", strategy: "tool_calling"},
-      {provider: "deepseek", strategy: "prompt_json"},
+      { provider: "openai", strategy: "json_schema" },
+      { provider: "deepseek", strategy: "json_object" },
+      { provider: "deepseek", strategy: "tool_calling" },
+      { provider: "deepseek", strategy: "prompt_json" },
     ]);
   } finally {
     factory.resolveLLMClientOptions = originalResolveOptions;
     factory.createLLMFromResolvedOptions = originalCreateLLM;
-    structuredFallbackSettings.getStructuredFallbackSettings = originalGetFallbackSettings;
+    structuredFallbackSettings.getStructuredFallbackSettings =
+      originalGetFallbackSettings;
   }
 });
 
 test("invokeStructuredLlmDetailed retries transport failures using the configured retry count", async () => {
   const originalResolveOptions = factory.resolveLLMClientOptions;
   const originalCreateLLM = factory.createLLMFromResolvedOptions;
-  const originalGetFallbackSettings = structuredFallbackSettings.getStructuredFallbackSettings;
+  const originalGetFallbackSettings =
+    structuredFallbackSettings.getStructuredFallbackSettings;
   const calls = [];
 
   factory.resolveLLMClientOptions = async (provider, options = {}) => {
     const resolvedProvider = provider ?? "openai";
     const resolvedModel = options.model ?? "gpt-4o-mini";
     const baseURL = options.baseURL ?? "https://api.openai.com/v1";
-    const structuredProfile = options.executionMode === "structured"
-      ? resolveStructuredOutputProfile({
-        provider: resolvedProvider,
-        model: resolvedModel,
-        baseURL,
-        executionMode: "structured",
-      })
-      : null;
+    const structuredProfile =
+      options.executionMode === "structured"
+        ? resolveStructuredOutputProfile({
+            provider: resolvedProvider,
+            model: resolvedModel,
+            baseURL,
+            executionMode: "structured",
+          })
+        : null;
     return {
       provider: resolvedProvider,
       providerName: resolvedProvider,
@@ -624,13 +828,15 @@ test("invokeStructuredLlmDetailed retries transport failures using the configure
       apiKey: "test-key",
       baseURL,
       maxTokens: options.maxTokens,
-      reasoningEnabled: !(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningEnabled: !structuredProfile?.requiresNonThinkingForStructured,
       modelKwargs: undefined,
       includeRawResponse: false,
       executionMode: options.executionMode ?? "plain",
       structuredProfile,
       structuredStrategy: options.structuredStrategy ?? null,
-      reasoningForcedOff: Boolean(structuredProfile?.requiresNonThinkingForStructured),
+      reasoningForcedOff: Boolean(
+        structuredProfile?.requiresNonThinkingForStructured,
+      ),
       taskType: options.taskType,
       promptMeta: options.promptMeta,
     };
@@ -642,9 +848,11 @@ test("invokeStructuredLlmDetailed retries transport failures using the configure
         strategy: resolved.structuredStrategy,
       });
       if (calls.length === 1) {
-        throw new Error("Our servers are currently overloaded. Please try again later.");
+        throw new Error(
+          "Our servers are currently overloaded. Please try again later.",
+        );
       }
-      yield { content: "{\"value\":\"retried-ok\"}" };
+      yield { content: '{"value":"retried-ok"}' };
     },
   });
   structuredFallbackSettings.getStructuredFallbackSettings = async () => ({
@@ -678,7 +886,8 @@ test("invokeStructuredLlmDetailed retries transport failures using the configure
   } finally {
     factory.resolveLLMClientOptions = originalResolveOptions;
     factory.createLLMFromResolvedOptions = originalCreateLLM;
-    structuredFallbackSettings.getStructuredFallbackSettings = originalGetFallbackSettings;
+    structuredFallbackSettings.getStructuredFallbackSettings =
+      originalGetFallbackSettings;
   }
 });
 
@@ -698,15 +907,19 @@ test("invokeStructuredLlmDetailed preserves explicit Anthropic protocol through 
     });
     const resolvedProvider = provider ?? "openai";
     const resolvedModel = options.model ?? "claude-sonnet-4-5";
-    const requestProtocol = options.requestProtocol === "anthropic" ? "anthropic" : "openai_compatible";
-    const structuredProfile = options.executionMode === "structured"
-      ? resolveStructuredOutputProfile({
-        provider: resolvedProvider,
-        model: resolvedModel,
-        requestProtocol,
-        executionMode: "structured",
-      })
-      : null;
+    const requestProtocol =
+      options.requestProtocol === "anthropic"
+        ? "anthropic"
+        : "openai_compatible";
+    const structuredProfile =
+      options.executionMode === "structured"
+        ? resolveStructuredOutputProfile({
+            provider: resolvedProvider,
+            model: resolvedModel,
+            requestProtocol,
+            executionMode: "structured",
+          })
+        : null;
     return {
       provider: resolvedProvider,
       providerName: resolvedProvider,
@@ -736,7 +949,7 @@ test("invokeStructuredLlmDetailed preserves explicit Anthropic protocol through 
     repairRequestProtocol = options.requestProtocol ?? null;
     return {
       stream: async function* () {
-        yield { content: "{\"value\":\"fixed\"}" };
+        yield { content: '{"value":"fixed"}' };
       },
     };
   };
@@ -759,7 +972,10 @@ test("invokeStructuredLlmDetailed preserves explicit Anthropic protocol through 
     assert.deepEqual(result.data, { value: "fixed" });
     assert.equal(resolveCalls[0].requestProtocol, "anthropic");
     assert.equal(resolveCalls[1].requestProtocol, "anthropic");
-    assert.deepEqual(resolveCalls.map((call) => call.structuredStrategy), [undefined, "prompt_json"]);
+    assert.deepEqual(
+      resolveCalls.map((call) => call.structuredStrategy),
+      [undefined, "prompt_json"],
+    );
     assert.equal(repairRequestProtocol, "anthropic");
   } finally {
     factory.resolveLLMClientOptions = originalResolveOptions;
@@ -804,16 +1020,16 @@ test("parseStructuredLlmRawContentDetailed ignores generated string length limit
 test("parseStructuredLlmRawContentDetailed trims oversized arrays to exact schema length without invoking repair", async () => {
   const result = await structuredInvoke.parseStructuredLlmRawContentDetailed({
     rawContent: JSON.stringify({
-      chapters: [
-        { title: "a" },
-        { title: "b" },
-        { title: "c" },
-      ],
+      chapters: [{ title: "a" }, { title: "b" }, { title: "c" }],
     }),
     schema: z.object({
-      chapters: z.array(z.object({
-        title: z.string(),
-      })).length(2),
+      chapters: z
+        .array(
+          z.object({
+            title: z.string(),
+          }),
+        )
+        .length(2),
     }),
     provider: "deepseek",
     model: "deepseek-chat",
@@ -828,38 +1044,41 @@ test("parseStructuredLlmRawContentDetailed trims oversized arrays to exact schem
   });
 
   assert.deepEqual(result.data, {
-    chapters: [
-      { title: "a" },
-      { title: "b" },
-    ],
+    chapters: [{ title: "a" }, { title: "b" }],
   });
   assert.equal(result.repairUsed, false);
   assert.equal(result.repairAttempts, 0);
 });
 
 test("parseStructuredLlmRawContentDetailed does not invent missing array items when output is undersized", async () => {
-  await assert.rejects(() => structuredInvoke.parseStructuredLlmRawContentDetailed({
-    rawContent: JSON.stringify({
-      chapters: [
-        { title: "a" },
-      ],
-    }),
-    schema: z.object({
-      chapters: z.array(z.object({
-        title: z.string(),
-      })).length(2),
-    }),
-    provider: "deepseek",
-    model: "deepseek-chat",
-    label: "structured.invoke.array.undersized",
-    maxRepairAttempts: 0,
-    strategy: "prompt_json",
-    profile: resolveStructuredOutputProfile({
-      provider: "deepseek",
-      model: "deepseek-chat",
-      executionMode: "structured",
-    }),
-  }), /STRUCTURED_OUTPUT:schema_mismatch/i);
+  await assert.rejects(
+    () =>
+      structuredInvoke.parseStructuredLlmRawContentDetailed({
+        rawContent: JSON.stringify({
+          chapters: [{ title: "a" }],
+        }),
+        schema: z.object({
+          chapters: z
+            .array(
+              z.object({
+                title: z.string(),
+              }),
+            )
+            .length(2),
+        }),
+        provider: "deepseek",
+        model: "deepseek-chat",
+        label: "structured.invoke.array.undersized",
+        maxRepairAttempts: 0,
+        strategy: "prompt_json",
+        profile: resolveStructuredOutputProfile({
+          provider: "deepseek",
+          model: "deepseek-chat",
+          executionMode: "structured",
+        }),
+      }),
+    /STRUCTURED_OUTPUT:schema_mismatch/i,
+  );
 });
 
 test("buildStructuredResponseFormat keeps string length limits in json schema sent to the model", () => {
@@ -867,14 +1086,20 @@ test("buildStructuredResponseFormat keeps string length limits in json schema se
     strategy: "json_schema",
     schema: z.object({
       summary: z.string().trim().min(10).max(50),
-      items: z.array(z.object({
-        code: z.string().length(3),
-      })).max(4),
+      items: z
+        .array(
+          z.object({
+            code: z.string().length(3),
+          }),
+        )
+        .max(4),
     }),
     label: "structured.invoke.length.schema",
   });
 
-  const serializedSchema = JSON.stringify(responseFormat?.json_schema?.schema ?? {});
+  const serializedSchema = JSON.stringify(
+    responseFormat?.json_schema?.schema ?? {},
+  );
 
   assert.equal(serializedSchema.includes("minLength"), true);
   assert.equal(serializedSchema.includes("maxLength"), true);

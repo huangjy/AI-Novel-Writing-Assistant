@@ -82,6 +82,14 @@
 
 这些例外不是新增 prompt 的默认入口。触碰例外文件时，优先评估能否迁入 PromptAsset + runner；暂时不能迁入时，应补齐等价的 prompt telemetry bridge，避免形成不可观测的第二套 prompt 执行路径。
 
+## 严格输出的请求 Schema 边界
+
+`llm/structuredOutput.ts` 的 `buildStructuredResponseFormat` 负责原生 `json_schema` 请求合同。声明 `strict: true` 时，每个对象的 `properties` 都必须列入 `required`，包括嵌套对象、数组元素和联合分支。统一通过 Zod `toJSONSchema` 的递归 `override` 补齐，预检与正式发送继续共用 `buildStructuredCallOptions`，不能在 Copilot 代理或单个业务服务内再次转换。
+
+转换只调整传输 Schema 的字段声明，不改变原 Zod Schema、字段类型、可空性、输出额度或其他结构化模式。业务允许“没有值”的字段应在 PromptAsset Schema 中显式声明 `nullable`，并要求模型返回 `null`；仅写 `optional` 不能表达严格输出中的字段缺省。不要通过放宽业务校验或自动把所有字段改为可空来满足协议。
+
+典型失败是模型与结构化连通性测试成功，正式候选生成却收到 HTTP 400：简单测试的所有字段可能本来就是必填，而正式 Schema 含可选字段。应先比较 SDK 实际请求体中的 `strict`、`properties` 与 `required`，不能仅凭通用“模型请求被拒绝”提示归因为额度、授权或模型不可用。回归测试需覆盖真实候选 Schema、嵌套结构及离线 SDK 序列化；真实模型验证只能在用户授权后执行，测试结果不得写入创作任务。
+
 ## 工作台的编辑与应用边界
 
 ### 背景与决策

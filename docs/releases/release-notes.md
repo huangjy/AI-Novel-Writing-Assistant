@@ -4,6 +4,12 @@
 
 ## 更新历史
 
+### 2026-11-19
+
+#### 修复
+
+- 修复 Copilot 模型连接检测通过后，生成书级候选仍提示模型请求被拒绝的问题。
+
 ### 2026-11-18
 
 #### 优化
@@ -195,7 +201,6 @@
 
 #### 新增
 
-
 #### 修复
 
 - 拆书分析和图片生成停止时中断正在等待的模型请求，避免继续生成后续内容或自动重试。
@@ -357,6 +362,7 @@
 - 打开章节编辑器时不再显示工作区左侧导航栏，编辑区占满整个宽度；小说编辑页的导航栏保持不变。
 - 编辑器设置集中到一个弹窗：点正文右上角「设置」，可调布局、字号、行距、专注模式与续写建议；编辑区顶部不再有单独的设置行。
 - 左右侧栏可收起：本章信息栏与 AI 改写栏各有收起按钮，收起后只留一条窄边，点窄边上的按钮随时展开；候选审阅时右栏自动展开。
+
 #### 修复
 
 - 自动导演在章节生产中途因余额不足、外部服务中断等原因暂停后，从保存进度继续时可能反复停在同一章，严重时整本书无法续写：修复恢复环节的多处校验冲突，暂停后可正常续写后续章节。
@@ -2012,17 +2018,20 @@ Prompt Workbench 现在可以把已改动的槽位对齐到官方当前版，适
 生成链路优化（1.D + Phase 2 + Phase 3）：修复质量债务高发根因、消除每章重复全量查询、实现 N+1 章节执行预取，全书自动执行效率和质量双提升。
 
 **1.D 质量修复闭环子项**
+
 - **根因A（修复器结构化义务）**：`prepareChapterRepairExecution` 改为传入结构化 `issuesJson`，包含 `missingObligations`（kind/summary/evidence）和 `blockingIssueCodes`，修复器不再只看压扁文本猜问题类型，可定向补写未兑现义务。
 - **根因B（宽松锚点重试）**：`ChapterPatchRepairService` 锚点失配后，先用 `continuity_only` 宽松模式重试一次，再升级 `heavy_repair`；同步将 `patchRepair` 预算从 1 提升到 2，减少过早升级。
 - **根因E（issueSignature 拆分）**：`buildDirectorQualityLoopIssueSignature` 在签名头加 `length|` / `content|` 前缀，长度类与内容类问题获得独立预算计数器，避免补丁修好长度后浮出内容问题时触发误升级。
 
 **Phase 2 上下文分层缓存**
+
 - 新增 `BatchContextCache`：将 novel 全量查询（world/characters/storyMacroPlan/volumePlans，共 10+ 子查询）缓存为进程内稳定层，按 `novelId` 命中；订阅 `character:changed` / `volume:updated` / `outline:revised` / `pipeline:completed` 自动失效。
 - `GenerationContextAssembler` 稳定层走缓存，每章仅重查动态字段（canonicalState/payoffLedger/factLedger/recentChapters/RAG 等）。
 - 移除 `timelineContextService.buildForChapter` 调用（PR-B 后写作路径已不消费 timelineContext），`contextPackage.timelineContext = null`。
 - 合并 `baseContextPackage` + `contextPackage` 双重构建为单一 `sharedFields` 展开，消除 ~30 个字段两遍手抄。
 
 **Phase 3 N+1 执行预取**
+
 - `novelCorePipelineService` 在每章 `runPipelineChapter` 完成后（factLedger 已写入），非阻塞（fire-and-forget）触发下一章的 JIT task sheet 预取。
 - 仅在 `full_book_autopilot` 模式启用；预取失败不影响流水线，下一章组装时自动重试。
 - 结合 `BatchContextCache`，N+1 章正式组装时 novel 稳定层已命中缓存、task sheet 已就绪，组装延迟大幅降低。
@@ -2818,6 +2827,7 @@ AI 驾驶舱继续执行更可靠：章节质量提醒或重规划建议被暂�
 - 任务中心现在会把自动导演任务的下一步说得更具体。选中任务后，可以直接看到它为什么停下、当前优先级以及现在最适合执行的动作，不再只剩一条笼统的继续或重试提示。
 - 当自动导演需要继续自动执行、普通恢复，或改用当前任务模型 / 路由模型重试时，可以直接在任务中心里完成，不需要先去别的页面判断该走哪条恢复路径。
 - 如果当前卡在候选确认、重规划或其他需要先处理的阶段，任务中心也会直接给出更贴近当前状态的入口和说明，减少“任务明明停住了，但不知道下一步该点哪里”的情况。
+
 ### 2026-04-23
 
 - 写法创建入口收进同一个弹窗了。你可以在 `模板起步 / 空白-AI / 从素材提取` 之间选择，不需要再从不同页面入口猜该怎么创建写法。
